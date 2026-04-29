@@ -815,7 +815,7 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 	listOpts.setup(listCmd.Flags())
 	_ = listCmd.MarkFlagRequired("type")
 
-	cmd.AddCommand(showCmd, listCmd)
+	cmd.AddCommand(showCmd, listCmd, newEntitiesDescribeCommand(loader))
 	return cmd
 }
 
@@ -1375,7 +1375,7 @@ func inspectScopeHint(ctx context.Context, client *Client, entityType, name stri
 		TimeCriteria: &TimeCriteria{Start: startMs, End: endMs},
 		FilterCriteria: []EntityMatcher{{
 			EntityType:       entityType,
-			PropertyMatchers: []PropertyMatcher{{Name: "name", Op: "EQUALS", Value: name}},
+			PropertyMatchers: []PropertyMatcher{{Name: "name", Op: "=", Value: name}},
 		}},
 		SampleSize: 10,
 	}
@@ -1386,7 +1386,7 @@ func inspectScopeHint(ctx context.Context, client *Client, entityType, name stri
 	var lines []string
 	lines = append(lines, fmt.Sprintf("Found %d matching %s entr%s in other scopes — retry with:", len(results), entityType, map[bool]string{true: "y", false: "ies"}[len(results) == 1]))
 	for _, r := range results {
-		parts := []string{fmt.Sprintf("  gcx kg inspect %s--%s", r.Type, r.Name)}
+		parts := []string{fmt.Sprintf("  gcx kg entities describe %s--%s", r.Type, r.Name)}
 		for _, dim := range []string{"env", "namespace", "site"} {
 			if v := r.Scope[dim]; v != "" {
 				parts = append(parts, fmt.Sprintf("--%s %s", dim, v))
@@ -1397,12 +1397,12 @@ func inspectScopeHint(ctx context.Context, client *Client, entityType, name stri
 	return strings.Join(lines, "\n")
 }
 
-func newInspectCommand(loader RESTConfigLoader) *cobra.Command {
+func newEntitiesDescribeCommand(loader RESTConfigLoader) *cobra.Command {
 	var inspectScope scopeFlags
 	ioOpts := &inspectOpts{}
 	cmd := &cobra.Command{
-		Use:   "inspect [Type--Name]",
-		Short: "Inspect an entity: info, insights, and summary.",
+		Use:   "describe [Type--Name]",
+		Short: "Show detailed info, insights, and summary for a single entity.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := ioOpts.IO.Validate(); err != nil {
 				return err
@@ -1423,7 +1423,7 @@ func newInspectCommand(loader RESTConfigLoader) *cobra.Command {
 					}
 				}
 				if name != "" {
-					return fmt.Errorf("%w\nRun 'gcx kg search entities %s' to see which environments and namespaces this entity exists in", err, name)
+					return fmt.Errorf("%w\nRun 'gcx kg entities list --type <type> --property name=~%s' to find matching entities", err, name)
 				}
 				return err
 			}

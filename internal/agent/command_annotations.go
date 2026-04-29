@@ -202,7 +202,7 @@ var commandAnnotations = map[string]annotation{
 	"gcx kg insights query":          {Cost: "medium", Hint: "<Type--Name> -o json"},
 	"gcx kg insights source-metrics": {Cost: "medium", Hint: "--insight-id <id> --since 1h"},
 	"gcx kg insights summary":        {Cost: "medium", Hint: "<Type--Name> -o json"},
-	"gcx kg inspect":                 {Cost: "medium", Hint: "<Type--Name> -o json"},
+	"gcx kg entities describe":       {Cost: "medium", Hint: "<Type--Name> -o json"},
 	"gcx kg model-rules create":      {Cost: "small"},
 	"gcx kg open":                    {Cost: "small"},
 	"gcx kg relabel-rules create":    {Cost: "small"},
