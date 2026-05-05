@@ -3,6 +3,7 @@ package loki
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/grafana/gcx/internal/agent"
@@ -52,6 +53,8 @@ open it in your browser after the query succeeds.`,
   gcx datasources loki query -d UID '{job="varlogs"}' -o json`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			rawFrom, rawTo, rawSince := shared.From, shared.To, shared.Since
+
 			if err := shared.Validate(); err != nil {
 				return err
 			}
@@ -65,11 +68,13 @@ open it in your browser after the query succeeds.`,
 
 			// Resolve datasource UID from -d flag, config, or Grafana auto-discovery.
 			var cfgCtx *internalconfig.Context
+			var ctxName string
 			fullCfg, err := loader.LoadFullConfig(ctx)
 			if err != nil {
 				logging.FromContext(ctx).Warn("could not load config; falling back to auto-discovery", slog.String("error", err.Error()))
 			} else {
 				cfgCtx = fullCfg.GetCurrentContext()
+				ctxName = fullCfg.CurrentContext
 			}
 
 			cfg, err := loader.LoadGrafanaConfig(ctx)
@@ -79,6 +84,13 @@ open it in your browser after the query succeeds.`,
 
 			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, datasource, cfgCtx, cfg, "loki")
 			if err != nil {
+				return err
+			}
+
+			cw, cached, hit := dsquery.NewCachedWriter(ctx, shared.NoCache, ctxName, datasourceUID, expr,
+				rawFrom, rawTo, rawSince, shared.Step, strconv.Itoa(limit), shared.IO.OutputFormat)
+			if hit {
+				_, err := cmd.OutOrStdout().Write(cached)
 				return err
 			}
 
@@ -124,13 +136,19 @@ open it in your browser after the query succeeds.`,
 			})
 			unavailableMsg, failedOpenMsg := dsquery.ExploreMessages("query")
 
-			return dsquery.EncodeAndHandleExplore(cmd, func() error {
-				return shared.IO.Encode(cmd.OutOrStdout(), resp)
+			out := cw.Writer(cmd.OutOrStdout())
+			encodeErr := dsquery.EncodeAndHandleExplore(cmd, func() error {
+				return shared.IO.Encode(out, resp)
 			}, *share, dsquery.ExploreLink{
 				URL:            exploreURL,
 				UnavailableMsg: unavailableMsg,
 				FailedOpenMsg:  failedOpenMsg,
 			})
+
+			if encodeErr == nil {
+				cw.Store()
+			}
+			return encodeErr
 		},
 	}
 
@@ -144,6 +162,7 @@ open it in your browser after the query succeeds.`,
 	shared.IO.BindFlags(cmd.Flags())
 	shared.SetupTimeFlags(cmd.Flags())
 	cmd.Flags().StringVar(&shared.Step, "step", "", "Query step (e.g., '15s', '1m')")
+	cmd.Flags().BoolVar(&shared.NoCache, "no-cache", false, "Bypass the local query cache")
 	shared.SetupExprFlag(cmd.Flags())
 	cmd.Flags().StringVarP(&datasource, "datasource", "d", "", "Datasource UID (required unless datasources.loki is configured)")
 	cmd.Flags().IntVar(&limit, "limit", dsquery.DefaultLokiLimit, "Maximum number of log lines to return (0 means no limit)")

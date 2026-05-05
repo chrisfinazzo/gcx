@@ -3,6 +3,7 @@ package datasources
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	cmdconfig "github.com/grafana/gcx/cmd/gcx/config"
@@ -44,6 +45,8 @@ that do not have a dedicated subcommand.`,
     --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --from now-1h --to now`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			rawFrom, rawTo, rawSince := shared.From, shared.To, shared.Since
+
 			if err := shared.Validate(); err != nil {
 				return err
 			}
@@ -66,12 +69,24 @@ that do not have a dedicated subcommand.`,
 			}
 			dsType := dsquery.NormalizeKind(rawType)
 
+			cw, cached, hit := dsquery.NewCachedWriter(ctx, shared.NoCache, configOpts.Context, datasourceUID, expr,
+				rawFrom, rawTo, rawSince, shared.Step,
+				strconv.Itoa(limit), profileType, strconv.FormatInt(maxNodes, 10),
+				shared.IO.OutputFormat)
+			if hit {
+				_, err := cmd.OutOrStdout().Write(cached)
+				return err
+			}
+
 			now := time.Now()
 			start, end, step, err := shared.ParseTimes(now)
 			if err != nil {
 				return err
 			}
 
+			out := cw.Writer(cmd.OutOrStdout())
+
+			var encodeErr error
 			switch dsType {
 			case "prometheus":
 				client, err := prometheus.NewClient(cfg)
@@ -92,10 +107,10 @@ that do not have a dedicated subcommand.`,
 				}
 
 				if shared.IO.OutputFormat == "table" {
-					return prometheus.FormatTable(cmd.OutOrStdout(), resp)
+					encodeErr = prometheus.FormatTable(out, resp)
+				} else {
+					encodeErr = shared.IO.Encode(out, resp)
 				}
-
-				return shared.IO.Encode(cmd.OutOrStdout(), resp)
 
 			case "loki":
 				client, err := loki.NewClient(cfg)
@@ -118,11 +133,11 @@ that do not have a dedicated subcommand.`,
 
 				switch shared.IO.OutputFormat {
 				case "table":
-					return loki.FormatQueryTable(cmd.OutOrStdout(), resp)
+					encodeErr = loki.FormatQueryTable(out, resp)
 				case "wide":
-					return loki.FormatQueryTableWide(cmd.OutOrStdout(), resp)
+					encodeErr = loki.FormatQueryTableWide(out, resp)
 				default:
-					return shared.IO.Encode(cmd.OutOrStdout(), resp)
+					encodeErr = shared.IO.Encode(out, resp)
 				}
 
 			case "pyroscope":
@@ -149,14 +164,19 @@ that do not have a dedicated subcommand.`,
 				}
 
 				if shared.IO.OutputFormat == "table" {
-					return pyroscope.FormatQueryTable(cmd.OutOrStdout(), resp)
+					encodeErr = pyroscope.FormatQueryTable(out, resp)
+				} else {
+					encodeErr = shared.IO.Encode(out, resp)
 				}
-
-				return shared.IO.Encode(cmd.OutOrStdout(), resp)
 
 			default:
 				return fmt.Errorf("datasource type %q is not supported (supported: prometheus, loki, pyroscope)", dsType)
 			}
+
+			if encodeErr == nil {
+				cw.Store()
+			}
+			return encodeErr
 		},
 	}
 

@@ -3,6 +3,7 @@ package tempo
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/grafana/gcx/internal/agent"
@@ -50,6 +51,8 @@ explicit time range via --since or --from/--to.`,
   gcx datasources tempo query -d UID '{ span.http.status_code >= 500 }' -o json`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			rawFrom, rawTo, rawSince := shared.From, shared.To, shared.Since
+
 			if err := shared.Validate(); err != nil {
 				return err
 			}
@@ -63,11 +66,13 @@ explicit time range via --since or --from/--to.`,
 
 			// Resolve datasource UID from -d flag, config, or Grafana auto-discovery.
 			var cfgCtx *internalconfig.Context
+			var ctxName string
 			fullCfg, err := loader.LoadFullConfig(ctx)
 			if err != nil {
 				logging.FromContext(ctx).Warn("could not load config; falling back to auto-discovery", slog.String("error", err.Error()))
 			} else {
 				cfgCtx = fullCfg.GetCurrentContext()
+				ctxName = fullCfg.CurrentContext
 			}
 
 			cfg, err := loader.LoadGrafanaConfig(ctx)
@@ -77,6 +82,13 @@ explicit time range via --since or --from/--to.`,
 
 			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, datasource, cfgCtx, cfg, "tempo")
 			if err != nil {
+				return err
+			}
+
+			cw, cached, hit := dsquery.NewCachedWriter(ctx, shared.NoCache, ctxName, datasourceUID, expr,
+				rawFrom, rawTo, rawSince, strconv.Itoa(limit), shared.IO.OutputFormat)
+			if hit {
+				_, err := cmd.OutOrStdout().Write(cached)
 				return err
 			}
 
@@ -121,13 +133,19 @@ explicit time range via --since or --from/--to.`,
 				}, limit)
 			}
 
-			return dsquery.EncodeAndHandleExplore(cmd, func() error {
-				return shared.IO.Encode(cmd.OutOrStdout(), resp)
+			out := cw.Writer(cmd.OutOrStdout())
+			encodeErr := dsquery.EncodeAndHandleExplore(cmd, func() error {
+				return shared.IO.Encode(out, resp)
 			}, *share, dsquery.ExploreLink{
 				URL:            exploreURL,
 				UnavailableMsg: unavailableMsg,
 				FailedOpenMsg:  failedOpenMsg,
 			})
+
+			if encodeErr == nil {
+				cw.Store()
+			}
+			return encodeErr
 		},
 	}
 

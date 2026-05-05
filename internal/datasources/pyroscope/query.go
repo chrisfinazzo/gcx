@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/grafana/gcx/internal/agent"
@@ -43,6 +44,8 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
     --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds -o json`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			rawFrom, rawTo, rawSince := shared.From, shared.To, shared.Since
+
 			if err := shared.Validate(); err != nil {
 				return err
 			}
@@ -60,11 +63,13 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 
 			// Resolve datasource UID from -d flag, config, or Grafana auto-discovery.
 			var cfgCtx *internalconfig.Context
+			var ctxName string
 			fullCfg, err := loader.LoadFullConfig(ctx)
 			if err != nil {
 				logging.FromContext(ctx).Warn("could not load config; falling back to auto-discovery", slog.String("error", err.Error()))
 			} else {
 				cfgCtx = fullCfg.GetCurrentContext()
+				ctxName = fullCfg.CurrentContext
 			}
 
 			cfg, err := loader.LoadGrafanaConfig(ctx)
@@ -74,6 +79,13 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 
 			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, datasource, cfgCtx, cfg, "pyroscope")
 			if err != nil {
+				return err
+			}
+
+			cw, cached, hit := dsquery.NewCachedWriter(ctx, shared.NoCache, ctxName, datasourceUID, expr,
+				rawFrom, rawTo, rawSince, profileType, strconv.FormatInt(maxNodes, 10), shared.IO.OutputFormat)
+			if hit {
+				_, err := cmd.OutOrStdout().Write(cached)
 				return err
 			}
 
@@ -109,11 +121,18 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 				return fmt.Errorf("query failed: %w", err)
 			}
 
+			out := cw.Writer(cmd.OutOrStdout())
+			var encodeErr error
 			if shared.IO.OutputFormat == "table" {
-				return pyroscope.FormatQueryTable(cmd.OutOrStdout(), resp)
+				encodeErr = pyroscope.FormatQueryTable(out, resp)
+			} else {
+				encodeErr = shared.IO.Encode(out, resp)
 			}
 
-			return shared.IO.Encode(cmd.OutOrStdout(), resp)
+			if encodeErr == nil {
+				cw.Store()
+			}
+			return encodeErr
 		},
 	}
 
