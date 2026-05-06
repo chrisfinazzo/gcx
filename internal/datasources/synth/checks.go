@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	internalconfig "github.com/grafana/gcx/internal/config"
 	dsquery "github.com/grafana/gcx/internal/datasources/query"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers"
-	"github.com/grafana/gcx/internal/providers/synth/checks"
 	"github.com/grafana/gcx/internal/query/synth"
 	"github.com/grafana/grafana-app-sdk/logging"
 	"github.com/spf13/cobra"
@@ -17,20 +17,72 @@ import (
 )
 
 type checksOpts struct {
-	IO         cmdio.Options
-	Datasource string
-	WithAlerts bool
+	IO           cmdio.Options
+	Datasource   string
+	WithAlerts   bool
+	Search       string
+	Enabled      *bool
+	MinFrequency time.Duration
+	MaxFrequency time.Duration
 }
 
 func (opts *checksOpts) setup(flags *pflag.FlagSet) {
 	opts.IO.BindFlags(flags)
 	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless datasources.synthetic-monitoring is configured)")
-	flags.BoolVar(&opts.WithAlerts, "with-alerts", false, "Include each check's alert rules in the response (server-side composition via ?includeAlerts=true)")
+	flags.BoolVar(&opts.WithAlerts, "with-alerts", false, "Include each check's alert rules in the response (server-side composition via ?includeAlerts=true). Cannot be combined with --search/--enabled/--min-frequency/--max-frequency.")
+	flags.StringVar(&opts.Search, "search", "", "Case-insensitive substring match against the check's job and target")
+	// Enabled is tri-state: nil = no filter, &true = only enabled, &false = only disabled.
+	// pflag has no native *bool, so we wire it manually after construction.
+	flags.Var(&optionalBool{ptr: &opts.Enabled}, "enabled", "Restrict to enabled (--enabled=true) or disabled (--enabled=false) checks; omit for no filter")
+	flags.Lookup("enabled").NoOptDefVal = "true" // bare --enabled means --enabled=true
+	flags.DurationVar(&opts.MinFrequency, "min-frequency", 0, "Lower bound on check frequency, inclusive (e.g. 30s, 5m). Sent to the API as min_frequency in milliseconds.")
+	flags.DurationVar(&opts.MaxFrequency, "max-frequency", 0, "Upper bound on check frequency, inclusive (e.g. 30s, 5m). Sent to the API as max_frequency in milliseconds.")
 }
 
 func (opts *checksOpts) Validate() error {
-	return opts.IO.Validate()
+	if err := opts.IO.Validate(); err != nil {
+		return err
+	}
+	if opts.WithAlerts && (opts.Search != "" || opts.Enabled != nil || opts.MinFrequency > 0 || opts.MaxFrequency > 0) {
+		return fmt.Errorf("--with-alerts cannot be combined with --search/--enabled/--min-frequency/--max-frequency (synthetic-monitoring API limitation)")
+	}
+	if opts.MinFrequency > 0 && opts.MaxFrequency > 0 && opts.MinFrequency > opts.MaxFrequency {
+		return fmt.Errorf("--min-frequency (%s) must be <= --max-frequency (%s)", opts.MinFrequency, opts.MaxFrequency)
+	}
+	return nil
 }
+
+// optionalBool is a pflag.Value that toggles a *bool — used to model
+// tri-state flags where "unset" is meaningful.
+type optionalBool struct {
+	ptr **bool
+}
+
+func (o *optionalBool) String() string {
+	if o.ptr == nil || *o.ptr == nil {
+		return ""
+	}
+	if **o.ptr {
+		return "true"
+	}
+	return "false"
+}
+
+func (o *optionalBool) Set(s string) error {
+	switch s {
+	case "true", "TRUE", "True", "1":
+		v := true
+		*o.ptr = &v
+	case "false", "FALSE", "False", "0":
+		v := false
+		*o.ptr = &v
+	default:
+		return fmt.Errorf("invalid bool %q: expected true or false", s)
+	}
+	return nil
+}
+
+func (o *optionalBool) Type() string { return "bool" }
 
 // ChecksCmd returns the `checks` subcommand for a Synthetic Monitoring datasource parent.
 func ChecksCmd(loader *providers.ConfigLoader) *cobra.Command {
@@ -46,6 +98,18 @@ func ChecksCmd(loader *providers.ConfigLoader) *cobra.Command {
 
   # List checks with their alert rules embedded (one server-side call)
   gcx datasources synthetic-monitoring checks -d UID --with-alerts
+
+  # Filter by job/target substring
+  gcx datasources synthetic-monitoring checks -d UID --search api-prod
+
+  # Only disabled checks
+  gcx datasources synthetic-monitoring checks -d UID --enabled=false
+
+  # Aggressive checks (faster than 1 minute)
+  gcx datasources synthetic-monitoring checks -d UID --max-frequency 1m
+
+  # Combine filters
+  gcx datasources synthetic-monitoring checks -d UID --search staging --enabled --max-frequency 30s
 
   # Output as JSON
   gcx datasources synthetic-monitoring checks -d UID -o json`,
@@ -79,12 +143,13 @@ func ChecksCmd(loader *providers.ConfigLoader) *cobra.Command {
 				return fmt.Errorf("failed to create client: %w", err)
 			}
 
-			var result []checks.Check
-			if opts.WithAlerts {
-				result, err = client.ListChecksWithAlerts(ctx, datasourceUID)
-			} else {
-				result, err = client.ListChecks(ctx, datasourceUID)
-			}
+			result, err := client.ListChecksFiltered(ctx, datasourceUID, synth.ListChecksOptions{
+				Search:       opts.Search,
+				Enabled:      opts.Enabled,
+				MinFrequency: opts.MinFrequency,
+				MaxFrequency: opts.MaxFrequency,
+				WithAlerts:   opts.WithAlerts,
+			})
 			if err != nil {
 				return fmt.Errorf("query failed: %w", err)
 			}
