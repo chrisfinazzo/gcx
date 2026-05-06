@@ -10,7 +10,7 @@ A prior gap analysis of `gcx irm oncall` against the Grafana IRM product surface
 
 1. **`alert-groups list` is unusable on real stacks.** It iterates the entire alert-group history, includes child groups the UI hides via `is_root=true`, and mixes resolved with active state.
 2. **`alert-groups list-alerts` returns useless IDs.** The `Alert` type is truncated to `ID`, `LinkToUpstreamDetails`, `CreatedAt`, `RenderForWeb`. The OnCall internal API exposes the full Alertmanager payload — labels, annotations, status, fingerprint, generatorURL — but only on the per-alert retrieve endpoint; `list-alerts` uses a slim serializer that excludes it. Decision 2 covers how we navigate that asymmetry.
-3. **`oncall alerts get` returns the same skeletal data as `list-alerts` items.** Same root cause as #2 — the type was impoverished, so a single-alert deep-dive added no value over the list. Decision 2 fixes the type richness; the verb is retained.
+3. **`oncall alerts get` returns the same skeletal data as `list-alerts` items.** Same root cause as #2 — the type was impoverished, so a single-alert deep-dive added no value over the list. Decision 2 fixes the type richness on `alert-groups list-alerts` and removes the standalone verb (see § 2.5 — the spike found `AlertRawSerializer` does not return `alert_group_pk`, so the resource was orphan from group context).
 
 Behind the pain points sit broader gaps that the SRE persona feels in practice: no pivot affordances from OnCall back into Grafana alerting, no "who is on call right now" view, no bulk acknowledge for storms, and a few verbs that violate the project's CLI grammar invariant (e.g. `oncall escalate` is a bare verb without a noun).
 
@@ -57,7 +57,7 @@ Default behaviour after this ADR ships:
 
 The default flips **immediately** rather than ramping through an opt-in flag first. gcx is pre-1.0 and the primary consumer is the project author; an opt-in ramp adds release latency without preserving meaningful contracts. The breaking change is documented loudly in CHANGELOG.
 
-### 2. Rich `AlertGroup` and `Alert` shapes with K8s envelope; `alerts get` retained
+### 2. Rich `AlertGroup` and `Alert` shapes with K8s envelope
 
 A spike against live Grafana Cloud stacks reshaped this decision in three substantive ways from the earlier draft. First, the OnCall internal API's behaviour around payload richness is split: the list endpoint `/alerts/?alert_group_id=X` uses a slim serializer that returns only `id, link_to_upstream_details, render_for_web, created_at, rule_name, generator_url`; the rich Alertmanager-shape `raw_request_data` lives only on the retrieve endpoint `/alerts/<id>/`. The earlier framing ("the API returns the full Alertmanager payload that we discard") was true for retrieve, false for list. Second, the `alertgroups/<id>/` response already inlines `last_alert.raw_request_data`, so the 99% SRE drilldown ("what's this alert about") gets the full payload in one round trip — independent of how `list-alerts` behaves. Third, the AlertGroup ergonomics needed work too (integer enum `status`, primary-key `team`, wall-of-HTML `render_for_web`, the actually-useful structured fields buried inside `last_alert.raw_request_data`), so the redesign covers AlertGroup AND Alert rather than just promoting Alert fields.
 
@@ -216,13 +216,13 @@ The slim list endpoint matters less than the earlier draft assumed — `alertgro
 - **`--include-raw`**: orthogonal opt-in flag — emits `status.raw` with the full Alertmanager-shape webhook for every alert. Fetch behaviour unchanged (the N+1 still runs because the extracted fields require it); this flag only controls what is emitted. See §2.6.
 - **Per-alert ordering**: same order as the slim API returns (most-recent-first, matching the `-created_at` ordering on the OnCall model queryset).
 
-#### 2.5 `alerts get <id>` retained
+#### 2.5 `alerts get <id>` removed
 
-The earlier draft removed `alerts get` on the basis that `list-alerts`'s rich payload made it redundant. That is reconsidered here: under the rich-by-default `list-alerts` model, `alerts get <id>` is the cheapest path to one specific alert without re-fetching the entire group's alert list (and paying the N+1 cost up to the cap). The verb is retained, returns the same `Alert` shape as `list-alerts` items (including the `--include-raw` toggle from §2.6), and inherits `--open` along with the rest of the typed-CRUD `get` family in Decision 3.
+The verb was tentatively retained in the initial D2 ship as the "cheapest single-alert path." On second look (round 9 of the iteration), `AlertRawSerializer` does not return `alert_group_pk`, leaving `spec` empty and orphaning the resource from group context. All real entry points (`list-alerts <group-id>`, web/Slack permalinks formatted as `/alert-groups/<group-id>/...`, upstream notification webhooks) start from group-level data, so the verb is dead weight in practice. Removed in commit `c3e978ab`. The shared rich-shape extraction surface (`GetAlertRich`, `AlertRich` types, envelope converters) is retained — `alert-groups list-alerts <group-id>` still uses it for the rich-by-default N+1 fan-out.
 
 #### 2.6 `--include-raw`: opt-in raw passthrough
 
-`AlertGroup.status.raw` (commonLabels + commonAnnotations + groupLabels) and `Alert.status.raw` (full Alertmanager-shape webhook with the nested `alerts[]` array) are hidden by default on `alert-groups get`, `alert-groups list-alerts`, and `alerts get`. The promoted blocks (`status.{target,rule,instance,dashboard,severity,summary,runbookURL,...}`) are the curated view of the same data and cover the typical SRE drilldown.
+`AlertGroup.status.raw` (commonLabels + commonAnnotations + groupLabels) and `Alert.status.raw` (full Alertmanager-shape webhook with the nested `alerts[]` array) are hidden by default on `alert-groups get` and `alert-groups list-alerts`. The promoted blocks (`status.{target,rule,instance,dashboard,severity,summary,runbookURL,...}`) are the curated view of the same data and cover the typical SRE drilldown.
 
 The `--include-raw` flag opts the raw block back in. Common cases:
 
@@ -477,9 +477,9 @@ We chose typed sub-blocks grouped under a single `status.links` umbrella by what
 - Hierarchy by pivot target lets us evolve each block independently (e.g. add `status.links.dashboard.tags` later, or add new pivot targets like `status.links.synthetic` for synthetic monitoring) without inventing a new top-level surface every time.
 - The earlier "stepping stone" framing (one ID is enough to pivot) is preserved — the pivot ID is still a single scalar field, just nested for grouping.
 
-### Keep `gcx irm oncall alerts get <id>`
+### Retain `gcx irm oncall alerts get <id>`
 
-An earlier draft of this ADR removed the verb on the basis that "`list-alerts` is now rich, so a single-alert deep-dive is redundant." The spike reversed that conclusion. With `list-alerts` rich-by-default and bounded by the 100-cap N+1, `alerts get <id>` becomes the cheapest path to one specific alert without re-fetching the parent group's full alert list — a real workflow when an agent or human already holds an alert ID (from a previous `list-alerts`, a permalink, or an upstream system) and just wants the rich shape for that one record. The verb is retained, returns the same `Alert` shape as `list-alerts` items, and inherits `--open` from Decision 3. The earlier "alert IDs are only meaningful in the context of their group" framing remains true at the conceptual level but does not justify removing the read verb when its cost is one round trip vs N+1 for the full group.
+A first iteration kept the verb, arguing it was the cheapest single-alert path. Round 9 of the iteration reversed that. `AlertRawSerializer` omits `alert_group_pk`, so `spec` is empty and the resource is orphan from group context. Workflow analysis showed all real entry points (`list-alerts`, permalinks, webhooks) start from group-level data — there is no realistic flow where a caller holds a bare alert ID without already knowing the parent group. The verb was removed; the shared rich extraction surface stays because `alert-groups list-alerts` uses it.
 
 ### `bulk-acknowledge` / `bulk-resolve` / `stats` sub-verbs
 
@@ -521,7 +521,7 @@ Considered for § 7.4. Rejected because agent-mode auto-confirmation of destruct
 
 ### Positive
 
-- The three pain points are resolved end-to-end: actionable list defaults, rich `AlertGroup` and `Alert` shapes (K8s envelope with hierarchical `status.{target,rule,instance,dashboard}` blocks, decoded `state` enum, dropped HTML `render_for_web`), and `alerts get <id>` retained but now returning the same rich shape as `list-alerts` items.
+- The three pain points are resolved end-to-end: actionable list defaults, rich `AlertGroup` and `Alert` shapes (K8s envelope with hierarchical `status.{target,rule,instance,dashboard}` blocks, decoded `state` enum, dropped HTML `render_for_web`), and `alert-groups list-alerts <group-id>` returning the rich `Alert` shape (the standalone `alerts get <id>` was dropped — see § 2.5).
 - SRE workflow gains a coherent "investigate → pivot to alerting → act" path through promoted cross-provider IDs.
 - The CLI grammar invariant violation (`oncall escalate`) is fixed by collapsing it (and the test-endpoint trio) into `notifications send`.
 - The tailored tier no longer diverges in shape from the generic tier — one decoder per resource works across both tiers.

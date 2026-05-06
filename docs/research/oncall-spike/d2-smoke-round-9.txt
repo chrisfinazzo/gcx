@@ -1,0 +1,35 @@
+D2 Smoke Round 9 — commit c3e978ab — 2026-05-06
+================================================
+
+### ID 1 — irm oncall alerts get A61154KIR7PF8 (exit 1)
+PASS — exit 1; stderr: unknown command "alerts" for "gcx irm oncall"
+
+### ID 2 — irm oncall alerts --help (exit 0)
+PARTIAL — cobra intercepts --help on unknown command "alerts" and shows parent help for "gcx irm oncall" (exit 0). Without --help, `irm oncall alerts` correctly returns exit 1 with 'unknown command "alerts"'. This is expected cobra behavior: --help is consumed before command resolution; the unknown-command check never fires.
+
+### ID 3 — irm oncall alert-groups get IWDIPP8VLKENJ (exit 0)
+PASS — exit 0; rich shape with status.links.slo.{uid,name} populated ("vokcpl8zr3j0j12mm0o5y" / "Dashboard Service: Error Rate"); alertmanager integration confirmed.
+
+### ID 4 — irm oncall alert-groups get ILILSGFC6RB9W (exit 0)
+PASS — exit 0; rich shape with status.links.alert.instance.silenceURL populated; grafana_alerting integration confirmed.
+
+### ID 5 — irm oncall alert-groups get INNXAABB8Y2R1 (exit 0)
+PASS — exit 0; minimal shape (no links block — omitted by omitempty); no errors; formatted_webhook integration confirmed.
+
+### ID 6 — irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 2 (exit 0)
+PASS — exit 0; 2 alerts returned with full rich shape (status.{state,severity,target,links}); GetAlertRich and helpers confirmed wired; warn about limit printed correctly.
+
+### ID 7 — irm oncall alert-groups list-alerts IWDIPP8VLKENJ --slim --limit 2 (exit 0)
+PASS — exit 0; 2 alerts returned with slim shape (status: {}); no per-alert fetch performed; --slim opt-out working.
+
+### ID 8 — irm oncall alert-groups list-alerts IWDIPP8VLKENJ --include-raw --limit 1 (exit 0)
+PASS — exit 0; 1 alert returned with rich shape including full status.raw block (Alertmanager payload with groupKey, alerts[], commonLabels, etc.); --include-raw flag wired correctly.
+
+### ID 9 — irm oncall alert-groups list --max-age 24h -o table (exit 0)
+PASS — exit 0; table renders correctly with columns: ID, STATE, ALERTS, STARTED, TITLE; ~140 rows from live stack; no errors.
+
+### ID 10 — irm oncall spike d2 IWDIPP8VLKENJ (exit 0)
+PASS — exit 0; spike POC runs; output starts with "=== LIST endpoint payload (current AlertSerializer) ===" confirming hidden subcommand still wired.
+
+### ID 11 — irm oncall alert-groups get --help (exit 0)
+NOTE — exit 0; help renders cleanly with --include-raw flag shown. The --open flag is NOT present in the help output. If --open was expected, it is missing; however if --open was never added to the `get` subcommand (only to list-alerts or similar), this may be working as designed.
