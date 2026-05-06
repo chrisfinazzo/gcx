@@ -1,0 +1,252 @@
+package datasources
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+
+	cmdconfig "github.com/grafana/gcx/cmd/gcx/config"
+	"github.com/grafana/gcx/internal/agent"
+	"github.com/grafana/gcx/internal/format"
+	cmdio "github.com/grafana/gcx/internal/output"
+	"github.com/grafana/gcx/internal/schemads"
+	"github.com/grafana/gcx/internal/style"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+// SchemaCmd returns the `schema` subcommand for inspecting the schemads
+// schema a datasource plugin advertises (tables, columns, hints,
+// capabilities). Useful for picking table/column names to use from
+// `gcx datasources sql` and for comparing the abstraction's view of a
+// datasource against its native commands.
+func SchemaCmd() *cobra.Command {
+	configOpts := &cmdconfig.Options{}
+	opts := &schemaOpts{}
+
+	cmd := &cobra.Command{
+		Use:   "schema DATASOURCE_UID",
+		Short: "Show the abstraction-schema a datasource exposes (tables, columns, hints, capabilities)",
+		Long: `Show the schema a datasource plugin exposes via the abstractionSchema
+protocol. The default view lists table names plus datasource-level
+capabilities. Use --table to drill into a single table's columns,
+hints, and parameters.
+
+Only datasources whose plugin implements the abstractionSchema endpoints
+respond; others return 404 or 501.`,
+		Annotations: map[string]string{
+			agent.AnnotationTokenCost: "medium",
+			agent.AnnotationLLMHint:   "gcx datasources schema UID --match up -o json",
+		},
+		Example: `
+  # List tables (with --match to filter when there are many)
+  gcx datasources schema bfh6nkyxwj7cwf --match up
+
+  # Drill into a single table's columns and hints
+  gcx datasources schema bfh6nkyxwj7cwf --table up
+
+  # Full schema as JSON
+  gcx datasources schema bfh6nkyxwj7cwf -o json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := opts.Validate(); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			cfg, err := configOpts.LoadGrafanaConfig(ctx)
+			if err != nil {
+				return err
+			}
+			client, err := schemads.NewClient(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create client: %w", err)
+			}
+			schema, err := client.FullSchema(ctx, args[0])
+			if err != nil {
+				return fmt.Errorf("failed to fetch schema: %w", err)
+			}
+
+			view := buildSchemaView(schema, opts)
+			return opts.IO.Encode(cmd.OutOrStdout(), view)
+		},
+	}
+
+	configOpts.BindFlags(cmd.Flags())
+	opts.setup(cmd.Flags())
+	return cmd
+}
+
+type schemaOpts struct {
+	IO    cmdio.Options
+	Table string
+	Match string
+	Limit int
+}
+
+func (opts *schemaOpts) setup(flags *pflag.FlagSet) {
+	opts.IO.RegisterCustomCodec("table", &schemaTableCodec{})
+	opts.IO.DefaultFormat("table")
+	opts.IO.BindFlags(flags)
+	flags.StringVar(&opts.Table, "table", "", "Drill into a specific table (show columns, hints, parameters)")
+	flags.StringVar(&opts.Match, "match", "", "Case-insensitive substring filter applied to table names")
+	flags.IntVar(&opts.Limit, "limit", 200, "Max number of tables to display in the list view (0 = unlimited)")
+}
+
+func (opts *schemaOpts) Validate() error {
+	return opts.IO.Validate()
+}
+
+// schemaView is the codec-agnostic shape rendered by `gcx datasources schema`.
+// One field is populated based on the user's flags so JSON/YAML output is
+// stable (always the same top-level keys).
+type schemaView struct {
+	Capabilities *schemads.DatasourceCapabilities `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Functions    []string                         `json:"functions,omitempty" yaml:"functions,omitempty"`
+	TablesTotal  int                              `json:"tablesTotal" yaml:"tablesTotal"`
+	TablesShown  int                              `json:"tablesShown" yaml:"tablesShown"`
+	Tables       []string                         `json:"tables,omitempty" yaml:"tables,omitempty"`
+	Table        *schemads.Table                  `json:"table,omitempty" yaml:"table,omitempty"`
+}
+
+func buildSchemaView(s *schemads.Schema, opts *schemaOpts) *schemaView {
+	out := &schemaView{
+		Capabilities: s.Capabilities,
+		Functions:    s.Functions,
+		TablesTotal:  len(s.Tables),
+	}
+
+	if opts.Table != "" {
+		for i := range s.Tables {
+			if strings.EqualFold(s.Tables[i].Name, opts.Table) {
+				t := s.Tables[i]
+				out.Table = &t
+				return out
+			}
+		}
+		// Not found — leave Table nil; the codec surfaces this.
+		return out
+	}
+
+	names := make([]string, 0, len(s.Tables))
+	for _, t := range s.Tables {
+		if opts.Match != "" && !strings.Contains(strings.ToLower(t.Name), strings.ToLower(opts.Match)) {
+			continue
+		}
+		names = append(names, t.Name)
+	}
+	sort.Strings(names)
+	if opts.Limit > 0 && len(names) > opts.Limit {
+		names = names[:opts.Limit]
+	}
+	out.Tables = names
+	out.TablesShown = len(names)
+	return out
+}
+
+type schemaTableCodec struct{}
+
+func (c *schemaTableCodec) Format() format.Format { return "table" }
+
+func (c *schemaTableCodec) Encode(w io.Writer, data any) error {
+	v, ok := data.(*schemaView)
+	if !ok {
+		return errors.New("invalid data type for table codec")
+	}
+
+	if v.Capabilities != nil {
+		if len(v.Capabilities.AggregateFunctions) > 0 {
+			fmt.Fprintln(w, "Capabilities:")
+			fmt.Fprintf(w, "  aggregateFunctions: %s\n", strings.Join(v.Capabilities.AggregateFunctions, ", "))
+		}
+		if v.Capabilities.OrderBy {
+			fmt.Fprintln(w, "  orderBy: yes")
+		}
+		if v.Capabilities.Limit {
+			fmt.Fprintln(w, "  limit: yes")
+		}
+		fmt.Fprintln(w)
+	}
+	if len(v.Functions) > 0 {
+		fmt.Fprintf(w, "Functions: %s\n\n", strings.Join(v.Functions, ", "))
+	}
+
+	if v.Table != nil {
+		return renderSingleTable(w, v.Table)
+	}
+
+	if v.Tables == nil {
+		// Either --table didn't match, or no tables at all.
+		fmt.Fprintln(w, "(no matching tables)")
+		return nil
+	}
+
+	if v.TablesTotal != v.TablesShown {
+		fmt.Fprintf(w, "Tables (%d shown of %d total):\n", v.TablesShown, v.TablesTotal)
+	} else {
+		fmt.Fprintf(w, "Tables (%d):\n", v.TablesTotal)
+	}
+	t := style.NewTable("NAME")
+	for _, n := range v.Tables {
+		t.Row(n)
+	}
+	return t.Render(w)
+}
+
+func (c *schemaTableCodec) Decode(io.Reader, any) error {
+	return errors.New("table codec does not support decoding")
+}
+
+func renderSingleTable(w io.Writer, t *schemads.Table) error {
+	fmt.Fprintf(w, "Table: %s\n\n", t.Name)
+
+	if len(t.Columns) > 0 {
+		fmt.Fprintln(w, "Columns:")
+		ct := style.NewTable("NAME", "TYPE", "DESCRIPTION")
+		for _, c := range t.Columns {
+			ct.Row(c.Name, c.Type, c.Description)
+		}
+		if err := ct.Render(w); err != nil {
+			return err
+		}
+		fmt.Fprintln(w)
+	}
+
+	if len(t.TableHints) > 0 {
+		fmt.Fprintln(w, "Hints:")
+		ht := style.NewTable("NAME", "VALUE", "DESCRIPTION")
+		for _, h := range t.TableHints {
+			val := "no"
+			if h.HasValue {
+				val = "yes"
+			}
+			ht.Row(h.Name, val, h.Description)
+		}
+		if err := ht.Render(w); err != nil {
+			return err
+		}
+		fmt.Fprintln(w)
+	}
+
+	if len(t.TableParameters) > 0 {
+		fmt.Fprintln(w, "Parameters:")
+		pt := style.NewTable("NAME", "REQUIRED", "ROOT", "DEPENDS ON")
+		for _, p := range t.TableParameters {
+			req := "no"
+			if p.Required {
+				req = "yes"
+			}
+			root := "no"
+			if p.Root {
+				root = "yes"
+			}
+			pt.Row(p.Name, req, root, strings.Join(p.DependsOn, ", "))
+		}
+		if err := pt.Render(w); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
