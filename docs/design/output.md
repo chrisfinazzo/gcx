@@ -97,8 +97,48 @@ by `--json ?`. Field discovery introspects a sample object from the API — no
 additional list calls are made (NC-005).
 
 **Output shape:**
-- Single resource: `{"field": "value", ...}` (flat object, only selected fields)
-- List/collection: `{"items": [{"field": "value"}, ...]}`
+
+Single-resource commands return a flat JSON object containing only the selected
+fields:
+
+```bash
+$ gcx resources get dashboards/my-dash --json metadata.name,spec.title
+```
+```json
+{
+  "metadata.name": "my-dash",
+  "spec.title": "My Dashboard"
+}
+```
+
+List/collection commands wrap results in an `{"items": [...]}` envelope:
+
+```bash
+$ gcx resources get dashboards --json metadata.name,spec.title
+```
+```json
+{
+  "items": [
+    {
+      "metadata.name": "my-dash",
+      "spec.title": "My Dashboard"
+    },
+    {
+      "metadata.name": "checkout-funnel",
+      "spec.title": "Checkout Funnel"
+    }
+  ]
+}
+```
+
+The `items` envelope exists so tooling can distinguish an empty list (`{"items": []}`)
+from a missing resource, and so the response shape stays consistent whether the
+result set has one element or many. When piping to `jq`, use `.items[]` to iterate
+over entries:
+
+```bash
+$ gcx resources get dashboards --json metadata.name | jq -r '.items[]."metadata.name"'
+```
 
 **Backward compatibility:** `-o json` is unchanged — it still produces the full
 resource object. `--json` is an independent mechanism (NC-002).
