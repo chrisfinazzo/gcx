@@ -1,0 +1,207 @@
+# D2 — Rich `AlertGroup` and `Alert` shapes — implementation log
+
+**Status**: shipped to the branch. ADR § 2 fully rewritten to match. End-to-end smoke-tested against the `ops` stack.
+
+**Companion docs**:
+- [`d2-rich-alert.md`](d2-rich-alert.md) — original spike verdict (YELLOW with caveats; what we knew before iteration).
+- [`../../adrs/oncall-feature-expansion/001-sre-expansion.md`](../../adrs/oncall-feature-expansion/001-sre-expansion.md) § 2 — the locked design (single source of truth).
+
+This doc captures the iteration arc — what changed between the spike's verdict and the shipped implementation, and why. Useful as a template for handling other ADR findings (D4, D5, D6 …) and as context if D2 needs re-opening later.
+
+## Final shape (locked)
+
+```yaml
+apiVersion: oncall.ext.grafana.app/v1alpha1
+kind: AlertGroup
+metadata:
+  name: IWDIPP8VLKENJ
+  namespace: stacks-27821
+  creationTimestamp: "2026-05-05T19:29:23.381143Z"
+spec:
+  integration: {id, name, type}
+  team: {id, name}                          # name resolved via cached teams list
+  permalinks: {web, slack, slack_app, telegram}
+status:
+  title: "..."
+  summary: "..."                            # commonAnnotations.summary OR description
+  severity: warning
+  state: acknowledged                       # decoded enum (was integer 0/1/2/3)
+  runbookURL: "..."
+  target:
+    cluster: prod-us-east-0
+    service: dashboard-service
+    namespace: ""                           # omitempty
+  timestamps:
+    started: "..."
+    acknowledged: "..."
+    resolved: ""                            # omitempty
+    silenced: ""                            # omitempty
+  links:                                    # cross-provider pivots (omitempty when empty)
+    alert:
+      rule: {uid, url}                      # → gcx alert rules get / instances list --rule
+      instance: {id, silenceURL}
+    dashboard: {uid, url, panel: {id, url}} # → gcx resources get dashboards/<uid>
+    slo: {uid, name}                        # → gcx slo definitions get <uid> (when SLO-driven)
+  alertsCount: 3
+  raw:                                      # hidden by default — opt in via --include-raw
+    commonLabels: {...}
+    commonAnnotations: {...}
+    groupLabels: {...}
+```
+
+`Alert` mirrors the `status` block (state, severity, target, links) and exposes the full Alertmanager-shape webhook under `status.raw` (also opt-in via `--include-raw`).
+
+## How the design evolved
+
+The locked shape is the result of seven user-driven iterations on the original ADR draft. Each round of feedback tightened the design or surfaced a backend reality we hadn't accounted for.
+
+### 1. Architecture: alertgroup-first vs N+1-from-list
+
+ADR draft proposed: rich payload on `Alert`, exposed via `list-alerts <group-id>` doing N+1 retrieves. The spike found:
+
+- The alert *list* endpoint uses a slim serializer; rich data only on retrieve.
+- **`alertgroups/<id>/` already includes `last_alert.raw_request_data` inline** — one round trip gets the rich payload for the typical drilldown.
+- For multi-cell debugging (each alert's distinguishing labels), `last_alert` isn't enough — N+1 across all Alert records *is* needed.
+
+Both paths matter. Final decision: **rich shape on AlertGroup AND Alert**; `list-alerts` does N+1 by default with `--slim` opt-out and a 100-cap. `alerts get <id>` retained (the ADR's original "remove" plan was reversed) as the cheapest single-alert path.
+
+### 2. AlertGroup ergonomics (separate concern from rich payload)
+
+The user's first encounter with the new `alert-groups get` output exposed problems the ADR hadn't framed:
+
+- `status: 1` opaque integer enum.
+- `team: TKH52TW6TH7UE` PK-only, no name.
+- `render_for_web` was a wall of HTML markup of data already structured elsewhere — pure noise.
+
+Resolution: decode `status` to string at the client edge; resolve `team.name` via a cached `ListTeams` call (one extra GET per command); drop `render_for_web` entirely (extract just `.title` text).
+
+### 3. Promoted-field set — three text bugs in the ADR
+
+The ADR's promoted-field source paths were wrong:
+
+| ADR claimed | Reality | Where it actually lives |
+|---|---|---|
+| `dashboardUID` ← `labels.dashboard_uid_label_name` | doesn't exist | `annotations.__dashboardUid__` |
+| `panelID` ← `labels.panel_id` | doesn't exist | `annotations.__panelId__` |
+| `alertGroupUID` ← `labels.grafana_folder_uid` | doesn't exist | nowhere — dropped from the field set |
+
+`valueString` (proposed) was dropped: `var='alert' labels={...} value=1` traces are too technical for human readers.
+
+`lastAlert` (proposed) was dropped: a single arbitrary record is not useful at the AlertGroup level — callers wanting per-alert data run `list-alerts`.
+
+### 4. Two integration shapes, one extraction logic
+
+Mining 4 alertgroups across 4 integration types (alertmanager, grafana_alerting, formatted_webhook, webhook) revealed:
+
+- **`grafana_alerting`** (native): pivot identifiers first-class on `alerts[].ruleUID`, `dashboardURL`, `panelURL`, `silenceURL`, `valueString`. Bonus fields like `silenceURL` only available here.
+- **`alertmanager`** (Grafana-managed routed via AM): identifiers buried in `alerts[].labels.__alert_rule_uid__`, `alerts[].annotations.__dashboardUid__`, `alerts[].annotations.__panelId__`.
+- **`formatted_webhook`, `webhook`**: little to no structured data — promoted fields all `omitempty` and degrade gracefully.
+
+Extraction needs ordered fallback chains per field. Documented in ADR § 2.3.
+
+### 5. K8s envelope + hierarchical status
+
+User feedback: the flat status block was getting long (15+ keys). Group hierarchically.
+
+- K8s envelope (`metadata` / `spec` / `status`) was added consistently across both AlertGroup and Alert.
+- Status grouped semantically by what-it-points-at: `target` (where), `timestamps` (when), `rule` / `instance` / `dashboard` (pivot identifiers).
+
+Subsequent iteration on the user's "spec vs status" intuition: pivot UIDs are *observed* runtime data, not configured intent → keep in `status`, not `spec`. Field ordering in YAML emission can put pivots near the top of `status` for visibility.
+
+### 6. SLO lift + `links` umbrella
+
+User noticed the test alertgroup was driven by an SLO. Proposed lifting `slo.{uid, name}` and grouping all cross-provider pivots under a single `status.links` block. Final shape:
+
+```yaml
+status:
+  links:
+    alert:
+      rule: {uid, url}
+      instance: {id, silenceURL}
+    dashboard: {uid, url, panel: {id, url}}
+    slo: {uid, name}
+```
+
+SLO sources: `commonLabels.grafana_slo_uuid` (uid), `commonAnnotations.slo_name` (name). Verified end-to-end on `IWDIPP8VLKENJ`. Naming conversation (`pivots` vs `links` vs `refs` vs `subject`) settled on `links` (user's call); same for `target` (the affected cluster/service/namespace block).
+
+### 7. `--include-raw` flag + field rename
+
+After a round on the rich shape, the user flagged the `raw`/`payload` blocks as noise (`__values__`, `__alertImageToken__`, etc.) for typical drilldown.
+
+- `AlertGroup.status.raw` (3-key subset) and `Alert.status.payload` (full webhook) hidden by default.
+- New `--include-raw` flag on `alert-groups get`, `alert-groups list-alerts`, `alerts get`. Fetch behavior unchanged (extraction needs the payload); flag controls emission only.
+- `Alert.status.payload` renamed to `Alert.status.raw` for uniform field naming with AlertGroup.
+- Empty `{}` blocks for missing sub-fields fixed by converting struct values to pointer fields with `omitempty`.
+
+### 8. Field ordering — typed envelope
+
+After all of the above, the user noticed alphabetical YAML field ordering. Diagnosis: the default YAML codec in `internal/format/codec.go` does `json.Marshal → sigs.k8s.io/yaml.JSONToYAML`, and `JSONToYAML` alphabetizes object keys.
+
+Fix:
+- Replaced the `unstructured.Unstructured` → map-of-any path with typed envelope structs (`alertGroupEnvelope`, `alertEnvelope`, `k8sMetadata`).
+- Custom `orderedYAMLCodec` registered on the three GET commands' opts, using `goccy/go-yaml` directly with `UseJSONMarshaler` — preserves struct field declaration order.
+- JSON output preserves order naturally via `encoding/json`.
+
+Verified: status block now reads top-to-bottom `title → summary → severity → state → runbookURL → target → timestamps → links → alertsCount`.
+
+## What landed
+
+### Code
+
+- **`internal/providers/irm/oncalltypes/rich.go`** (new) — `AlertGroupRich`, `AlertGroupSpec`, `AlertGroupStatus`, `AlertRich`, `AlertSpec`, `AlertStatus`, `AlertLinks`, `AlertLinkAlert`, `AlertLinkSLO`, `AlertTarget`, `AlertTimestamps`, `AlertRule`, `AlertInstance`, `AlertDashboard`, `AlertPanel`, `AlertGroupRaw`, `AlertPayload`, `AlertmanagerAlert`, `IntegrationRef`, `TeamRef`, `AlertGroupLinks`.
+- **`internal/providers/irm/oncall_extract.go`** (new) — extraction helpers with dual-shape fallback chains: `extractRule`, `extractDashboard`, `extractTarget`, `extractSLO`, `buildAlertLinks`, `parseDashboardUIDFromURL`, `parsePanelIDFromURL`, `decodeAlertGroupState`, `extractIntegrationRef`, `extractTeamID`, `extractAlertGroupLinks`, `extractRawRequestDataFromLastAlert`, `extractTitleFromRenderForWeb`.
+- **`internal/providers/irm/oncall_rich_client.go`** (new) — `*OnCallClient.GetAlertGroupRich`, `GetAlertRich`, `listAlertIDs`, `resolveTeams` (lazy per-client cache), `buildAlertGroupRich`, `buildAlertRich`, `listAlertGroupRichFromBytes`.
+- **`internal/providers/irm/oncall_commands_extra.go`** — added `orderedYAMLCodec`, envelope types (`k8sMetadata`, `alertGroupEnvelope`, `alertEnvelope`), converters (`alertGroupRichToEnvelope`, `alertRichToEnvelope`), `slimAlertEnvelope`. Rewrote `alert-groups get` and `list-alerts` commands. Kept `alertGroupRichToUnstructured` / `alertRichToUnstructured` for legacy paths.
+- **`internal/providers/irm/oncall_commands.go`** — rewrote `alerts get` (new `newAlertGetRichCommand` keeping the verb).
+
+### ADR § 2
+
+Full rewrite. Sub-sections 2.1 (AlertGroup), 2.2 (Alert), 2.3 (extraction fallback chains — documented per-field source paths), 2.4 (list-alerts behaviour), 2.5 (alerts get retained), 2.6 (`--include-raw` flag), 2.7 (deferred backend AlertSerializer enrichment). Downstream sections updated: registry table for hint+cost annotations, post-result hint table, rejected-alternatives entry on `alerts get` (reversed), Consequences (positive + negative).
+
+### Spike artifacts (preserved)
+
+- `internal/providers/irm/spike.go`, `spike_d2_rich_alert.go`, `spike_d4_notifications_send.go`, `spike_d5_shifts_list.go`, `spike_d1d3d6d7d8_demo.go` — kept as-is. Hidden under `gcx irm oncall spike`.
+- `docs/research/oncall-spike/d2-rich-alert.md` etc. — original spike verdicts, untouched.
+
+## Smoke tests passing on `ops`
+
+```bash
+gcx --context=ops irm oncall alert-groups get IWDIPP8VLKENJ        # rich shape, ordered, no {} blocks, slo populated
+gcx --context=ops irm oncall alert-groups get ILILSGFC6RB9W        # grafana_alerting — silenceURL populated
+gcx --context=ops irm oncall alert-groups get I8H7WGN185K18        # alertmanager-via-Grafana extraction
+gcx --context=ops irm oncall alert-groups get INNXAABB8Y2R1        # formatted_webhook — minimal, no links block
+
+gcx --context=ops irm oncall alert-groups get IWDIPP8VLKENJ --include-raw  # 47 → 79 lines
+
+gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ          # rich, N+1
+gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --slim   # fast, no fetch
+gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 1
+
+gcx --context=ops irm oncall alerts get A61154KIR7PF8                       # KEPT — rich shape from /alerts/<id>/
+gcx --context=ops irm oncall alerts get A61154KIR7PF8 --include-raw
+
+gcx --context=ops irm oncall alert-groups list --max-age 24h -o table       # table codec still works
+gcx --context=ops irm oncall spike d2 IWDIPP8VLKENJ                          # spike untouched
+```
+
+## Open / deferred
+
+| Item | Disposition |
+|---|---|
+| Backend AlertSerializer enrichment | Deferred indefinitely — the alertgroup-first path covers 99% drilldown without backend changes |
+| `alerts get` returns `spec: {}` (no alertGroupID populated) | Known limitation — AlertRawSerializer endpoint doesn't return alert_group_pk; could backfill via extra round trip but left out |
+| List-pagination cap of 1000 in `listAlertGroupsRaw` | Defensive; revisit if real workflows hit it |
+| Teams resolution leaks across commands within a single CLI process | Acceptable for CLI; flag if anything embeds gcx as a library |
+| `render_for_web` extraction takes only `.title`, ignores `message`/`image_url`/`source_link` | Matches locked design; reconsider if a use case surfaces |
+| Severity falls back to `groupLabels.severity` (defensible addition not in original spec) | Intentional; documented in code |
+| Multi-entry `payload.alerts[]` lose per-entry distinguishing data in promoted view | Caveat documented in ADR § 2.2; `--include-raw` reveals the array without re-fetch |
+| YAML/JSON ordering on **list** outputs | Still alphabetical (list path keeps `unstructured.Unstructured` for table-codec compatibility); fix if a user complaint surfaces |
+
+## How to re-open D2
+
+If something needs re-litigating later, the entry points are:
+
+1. **Add a promoted field**: extend `extractRule`/`extractDashboard`/`extractSLO` in `oncall_extract.go`. Update the fallback-chain table in ADR § 2.3.
+2. **Reshape an existing block**: edit the type in `oncalltypes/rich.go`. The envelope conversion (`alertGroupRichToEnvelope` / `alertRichToEnvelope`) auto-picks up the new shape. Update ADR § 2.1 / § 2.2 YAML examples.
+3. **Adjust default visibility** (e.g. show `raw` by default): flip the default of `--include-raw` in the three command opts setup functions. Update ADR § 2.6.
+4. **Restore field ordering elsewhere** (e.g. on `alert-groups list`): convert that command's emission path to use a typed envelope + `orderedYAMLCodec`. Will require either keeping unstructured for the table codec via a second branch, or porting the table codec to read from envelope structs.

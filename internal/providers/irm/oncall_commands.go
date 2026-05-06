@@ -385,10 +385,52 @@ func newAlertsCmd(loader OnCallConfigLoader) *cobra.Command {
 		Short:   "View individual alerts.",
 		Aliases: []string{"alert"},
 	}
-	cmd.AddCommand(
-		newGetSubcommand(loader, "Get an alert by ID.",
-			func(ctx context.Context, c OnCallAPI, name string) (*Alert, error) { return c.GetAlert(ctx, name) }),
-	)
+	cmd.AddCommand(newAlertGetRichCommand(loader))
+	return cmd
+}
+
+func newAlertGetRichCommand(loader OnCallConfigLoader) *cobra.Command {
+	opts := &getOpts{}
+	var includeRaw bool
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Get an alert by ID.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := opts.IO.Validate(); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			client, namespace, err := loader.LoadOnCallClient(ctx)
+			if err != nil {
+				return err
+			}
+			oc, ok := client.(*OnCallClient)
+			if !ok {
+				// SA-token mode: fall back to the slim public API alert shape.
+				alert, err := client.GetAlert(ctx, args[0])
+				if err != nil {
+					return err
+				}
+				return opts.IO.Encode(cmd.OutOrStdout(), alert)
+			}
+			api, rich, err := oc.GetAlertRich(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if !includeRaw {
+				rich.Status.Raw = nil
+			}
+			env, err := alertRichToEnvelope(api, rich, "", namespace)
+			if err != nil {
+				return err
+			}
+			return opts.IO.Encode(cmd.OutOrStdout(), env)
+		},
+	}
+	opts.IO.RegisterCustomCodec("yaml", &orderedYAMLCodec{})
+	opts.setup(cmd.Flags())
+	cmd.Flags().BoolVar(&includeRaw, "include-raw", false, "Include the unprocessed Alertmanager-shape payload under status.raw (hidden by default; status.{target,links,...} are the promoted view of the same data)")
 	return cmd
 }
 
@@ -803,7 +845,7 @@ func (c *webhookTableCodec) Encode(w io.Writer, v any) error {
 	return t.Render(w)
 }
 
-// --- AlertGroup codec (internal: pk, status, started_at) ---
+// --- AlertGroup codec (rich: spec.integration.name, status.state, status.alertsCount, status.title) ---
 
 type alertGroupTableCodec struct {
 	noDecodeCodec
@@ -818,6 +860,48 @@ func (c *alertGroupTableCodec) Format() format.Format {
 	return "table"
 }
 
+// nestedStr walks a path through map[string]any nodes and returns the leaf
+// value as a string. Returns "" on any miss or non-string leaf.
+func nestedStr(obj unstructured.Unstructured, path ...string) string {
+	cur := any(obj.Object)
+	for _, k := range path {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return ""
+		}
+		cur, ok = m[k]
+		if !ok {
+			return ""
+		}
+	}
+	if s, ok := cur.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// nestedInt walks a path and returns the leaf as an int (handles float64/int).
+func nestedInt(obj unstructured.Unstructured, path ...string) int {
+	cur := any(obj.Object)
+	for _, k := range path {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return 0
+		}
+		cur, ok = m[k]
+		if !ok {
+			return 0
+		}
+	}
+	switch n := cur.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+	return 0
+}
+
 func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 	items, err := toUnstructuredSlice(v)
 	if err != nil {
@@ -825,23 +909,30 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 	}
 	var t *style.TableBuilder
 	if c.Wide {
-		t = style.NewTable("ID", "STATUS", "ALERTS", "STARTED", "INTEGRATION", "TEAM")
+		t = style.NewTable("ID", "STATE", "ALERTS", "STARTED", "INTEGRATION", "TEAM", "TITLE")
 	} else {
-		t = style.NewTable("ID", "STATUS", "ALERTS", "STARTED")
+		t = style.NewTable("ID", "STATE", "ALERTS", "STARTED", "TITLE")
 	}
 	for _, obj := range items {
 		id := obj.GetName()
-		started := specStr(obj, "started_at")
+		started := nestedStr(obj, "status", "timestamps", "started")
 		if len(started) > 16 {
 			started = started[:16]
 		}
 		started = orDash(started)
-		alerts := specInt(obj, "alerts_count")
-		status := specStr(obj, "status")
+		alerts := nestedInt(obj, "status", "alertsCount")
+		state := nestedStr(obj, "status", "state")
+		title := nestedStr(obj, "status", "title")
+		if !c.Wide {
+			title = truncate(title, 50)
+		}
 		if c.Wide {
-			t.Row(id, status, strconv.Itoa(alerts), started, orDash(specStr(obj, "alert_receive_channel")), orDash(specStr(obj, "team")))
+			t.Row(id, orDash(state), strconv.Itoa(alerts), started,
+				orDash(nestedStr(obj, "spec", "integration", "name")),
+				orDash(nestedStr(obj, "spec", "team", "name")),
+				orDash(title))
 		} else {
-			t.Row(id, status, strconv.Itoa(alerts), started)
+			t.Row(id, orDash(state), strconv.Itoa(alerts), started, orDash(title))
 		}
 	}
 	return t.Render(w)
@@ -950,13 +1041,23 @@ func (c *alertTableCodec) Encode(w io.Writer, v any) error {
 	if err != nil {
 		return err
 	}
-	t := style.NewTable("ID", "CREATED")
+	t := style.NewTable("ID", "CREATED", "STATE", "RULE", "INSTANCE")
 	for _, obj := range items {
-		created := specStr(obj, "created_at")
+		created := ""
+		if md, ok := obj.Object["metadata"].(map[string]any); ok {
+			if s, ok := md["creationTimestamp"].(string); ok {
+				created = s
+			}
+		}
 		if len(created) > 16 {
 			created = created[:16]
 		}
-		t.Row(obj.GetName(), orDash(created))
+		t.Row(obj.GetName(),
+			orDash(created),
+			orDash(nestedStr(obj, "status", "state")),
+			orDash(nestedStr(obj, "status", "rule", "uid")),
+			orDash(nestedStr(obj, "status", "instance", "id")),
+		)
 	}
 	return t.Render(w)
 }

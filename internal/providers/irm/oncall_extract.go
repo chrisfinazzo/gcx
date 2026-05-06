@@ -1,0 +1,443 @@
+package irm
+
+import (
+	"encoding/json"
+	"net/url"
+	"regexp"
+	"strconv"
+
+	"github.com/grafana/gcx/internal/providers/irm/oncalltypes"
+)
+
+// alertGroupAPI is the partially-parsed API shape returned by
+// GET /alertgroups/<id>/ and the items in /alertgroups/?... .
+//
+// Fields we don't need are left as json.RawMessage so we can pass them through
+// (or skip parsing them entirely on the list path where they're absent).
+type alertGroupAPI struct {
+	PK             string `json:"pk"`
+	AlertsCount    int    `json:"alerts_count"`
+	Status         *int   `json:"status"`
+	StartedAt      string `json:"started_at"`
+	ResolvedAt     string `json:"resolved_at"`
+	AcknowledgedAt string `json:"acknowledged_at"`
+	SilencedAt     string `json:"silenced_at"`
+
+	// Permalinks is `{web, slack, slack_app, telegram}` — sometimes null.
+	Permalinks json.RawMessage `json:"permalinks"`
+
+	// AlertReceiveChannel is an integration object on the get endpoint, often
+	// just an ID or null on related endpoints. We only consume the object form.
+	AlertReceiveChannel json.RawMessage `json:"alert_receive_channel"`
+
+	// Team is an object {pk, name, ...} on get; on list it can be a string ID.
+	Team json.RawMessage `json:"team"`
+
+	// RenderForWeb has fields {title, message, image_url, source_link} — title is what we want.
+	RenderForWeb json.RawMessage `json:"render_for_web"`
+
+	// LastAlert is an object that, on the get endpoint, includes
+	// `raw_request_data` (the original Alertmanager webhook payload).
+	LastAlert json.RawMessage `json:"last_alert"`
+
+	// Labels is the OnCall app's user-set labels[] array.
+	Labels json.RawMessage `json:"labels"`
+}
+
+// alertAPI is the partially-parsed shape from GET /alerts/<id>/.
+type alertAPI struct {
+	ID             string          `json:"id"`
+	AlertGroupID   string          `json:"alert_group"` // sometimes "alert_group_pk" / "alert_group" depending on path
+	AlertGroupPK   string          `json:"alert_group_pk"`
+	CreatedAt      string          `json:"created_at"`
+	RawRequestData json.RawMessage `json:"raw_request_data"`
+}
+
+// decodeAlertGroupState converts the OnCall integer state enum into the lowercase
+// string the rich type emits. The mapping comes from the AlertGroup model:
+//
+//	0 -> firing, 1 -> acknowledged, 2 -> resolved, 3 -> silenced.
+func decodeAlertGroupState(state *int) string {
+	if state == nil {
+		return ""
+	}
+	switch *state {
+	case 0:
+		return "firing"
+	case 1:
+		return "acknowledged"
+	case 2:
+		return "resolved"
+	case 3:
+		return "silenced"
+	default:
+		return ""
+	}
+}
+
+// firstNonEmpty returns the first non-empty argument (or "" if all empty).
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// parseStringMap decodes the given JSON bytes into map[string]string.
+// Returns nil when the input is empty or invalid (non-map / non-string values).
+func parseStringMap(data json.RawMessage) map[string]string {
+	if len(data) == 0 {
+		return nil
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err == nil {
+		return m
+	}
+	// Some payloads have heterogeneous values; coerce to strings.
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		switch t := v.(type) {
+		case string:
+			out[k] = t
+		case bool:
+			out[k] = strconv.FormatBool(t)
+		case float64:
+			out[k] = strconv.FormatFloat(t, 'g', -1, 64)
+		case nil:
+			// skip
+		default:
+			b, err := json.Marshal(t)
+			if err == nil {
+				out[k] = string(b)
+			}
+		}
+	}
+	return out
+}
+
+// rawRequestData represents the Alertmanager-shape webhook body that OnCall
+// stores under last_alert.raw_request_data (or alert.raw_request_data).
+type rawRequestData struct {
+	Status            string          `json:"status"`
+	GroupKey          string          `json:"groupKey"`
+	ExternalURL       string          `json:"externalURL"`
+	Receiver          string          `json:"receiver"`
+	NumFiring         int             `json:"numFiring"`
+	NumResolved       int             `json:"numResolved"`
+	TruncatedAlerts   int             `json:"truncatedAlerts"`
+	GroupLabels       json.RawMessage `json:"groupLabels"`
+	CommonLabels      json.RawMessage `json:"commonLabels"`
+	CommonAnnotations json.RawMessage `json:"commonAnnotations"`
+	Alerts            []amAlertRaw    `json:"alerts"`
+}
+
+// amAlertRaw mirrors a single entry in raw_request_data.alerts[] before normalization.
+type amAlertRaw struct {
+	Status       string          `json:"status"`
+	Labels       json.RawMessage `json:"labels"`
+	Annotations  json.RawMessage `json:"annotations"`
+	Fingerprint  string          `json:"fingerprint"`
+	GeneratorURL string          `json:"generatorURL"`
+	StartsAt     string          `json:"startsAt"`
+	EndsAt       string          `json:"endsAt"`
+
+	// grafana_alerting first-class fields.
+	RuleUID      string `json:"ruleUID"`
+	DashboardURL string `json:"dashboardURL"`
+	PanelURL     string `json:"panelURL"`
+	SilenceURL   string `json:"silenceURL"`
+}
+
+// dashboardUIDPattern parses the {uid} segment of a Grafana /d/{uid}/{slug}? URL.
+var dashboardUIDPattern = regexp.MustCompile(`/d/([A-Za-z0-9_-]+)`)
+
+// parseDashboardUIDFromURL extracts the dashboard UID from a /d/<uid>/<slug>... URL.
+// Returns "" on no match or an empty input.
+func parseDashboardUIDFromURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	m := dashboardUIDPattern.FindStringSubmatch(rawURL)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// parsePanelIDFromURL extracts the integer viewPanel query param from a Grafana panel URL.
+// Returns 0 on missing/invalid input.
+func parsePanelIDFromURL(rawURL string) int {
+	if rawURL == "" {
+		return 0
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return 0
+	}
+	v := u.Query().Get("viewPanel")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// extractRule applies the dual-shape fallback for the rule.uid / rule.url pair
+// against the first alert in `alerts[]` and the commonLabels map.
+//
+// Order:
+//  1. alerts[0].ruleUID (grafana_alerting's first-class field)
+//  2. alerts[0].labels.__alert_rule_uid__ (alertmanager-via-AM shape)
+//  3. commonLabels.__alert_rule_uid__
+//
+// For URL we use alerts[0].generatorURL. Returns nil when neither UID nor URL
+// could be extracted, so the caller can omit the block entirely.
+func extractRule(first *amAlertRaw, alertLabels, commonLabels map[string]string) *oncalltypes.AlertRule {
+	uid := ""
+	if first != nil {
+		uid = firstNonEmpty(first.RuleUID, alertLabels["__alert_rule_uid__"])
+	}
+	uid = firstNonEmpty(uid, commonLabels["__alert_rule_uid__"])
+
+	url := ""
+	if first != nil {
+		url = first.GeneratorURL
+	}
+	if uid == "" && url == "" {
+		return nil
+	}
+	return &oncalltypes.AlertRule{UID: uid, URL: url}
+}
+
+// extractDashboard applies the dual-shape fallback for dashboard.uid / dashboard.url
+// and the nested panel block. Returns nil when no dashboard link is available.
+func extractDashboard(first *amAlertRaw, alertAnnotations, commonAnnotations map[string]string) *oncalltypes.AlertDashboard {
+	if first == nil {
+		first = &amAlertRaw{}
+	}
+
+	url := firstNonEmpty(
+		first.DashboardURL,
+		alertAnnotations["dashboard_url"],
+		alertAnnotations["dashboardURL"],
+	)
+	uid := firstNonEmpty(
+		alertAnnotations["__dashboardUid__"],
+		alertAnnotations["dashboard_uid"],
+		alertAnnotations["dashboardUID"],
+		commonAnnotations["__dashboardUid__"],
+		parseDashboardUIDFromURL(url),
+		parseDashboardUIDFromURL(first.PanelURL),
+	)
+
+	panelURL := firstNonEmpty(first.PanelURL, alertAnnotations["panel_url"])
+	panelID := 0
+	if v := alertAnnotations["__panelId__"]; v != "" {
+		panelID, _ = strconv.Atoi(v)
+	}
+	if panelID == 0 {
+		if v := commonAnnotations["__panelId__"]; v != "" {
+			panelID, _ = strconv.Atoi(v)
+		}
+	}
+	if panelID == 0 {
+		panelID = parsePanelIDFromURL(panelURL)
+	}
+
+	if uid == "" && url == "" && panelID == 0 && panelURL == "" {
+		return nil
+	}
+
+	dash := &oncalltypes.AlertDashboard{
+		UID: uid,
+		URL: url,
+	}
+	if panelID != 0 || panelURL != "" {
+		dash.Panel = &oncalltypes.AlertPanel{
+			ID:  panelID,
+			URL: panelURL,
+		}
+	}
+	return dash
+}
+
+// extractSLO extracts the Grafana SLO uid + name when the alert is backed by
+// an SLO definition. Source: labels.grafana_slo_uuid + annotations.slo_name.
+// Returns nil when no SLO link is present.
+func extractSLO(labels, annotations map[string]string) *oncalltypes.AlertLinkSLO {
+	uid := firstNonEmpty(labels["grafana_slo_uuid"], labels["grafana_slo_uid"])
+	name := annotations["slo_name"]
+	if uid == "" && name == "" {
+		return nil
+	}
+	return &oncalltypes.AlertLinkSLO{UID: uid, Name: name}
+}
+
+// buildAlertLinks composes the rule / instance / dashboard / slo blocks into
+// a single Links struct. Returns nil when none of the four are populated.
+func buildAlertLinks(rule *oncalltypes.AlertRule, instance *oncalltypes.AlertInstance, dashboard *oncalltypes.AlertDashboard, slo *oncalltypes.AlertLinkSLO) *oncalltypes.AlertLinks {
+	var alertLink *oncalltypes.AlertLinkAlert
+	if rule != nil || instance != nil {
+		alertLink = &oncalltypes.AlertLinkAlert{Rule: rule, Instance: instance}
+	}
+	if alertLink == nil && dashboard == nil && slo == nil {
+		return nil
+	}
+	return &oncalltypes.AlertLinks{
+		Alert:     alertLink,
+		Dashboard: dashboard,
+		SLO:       slo,
+	}
+}
+
+// extractTarget extracts cluster/service/namespace from a labels map.
+// Returns nil when none of the three labels are present so the caller can
+// omit the block entirely.
+func extractTarget(labels map[string]string) *oncalltypes.AlertTarget {
+	cluster := labels["cluster"]
+	service := labels["service"]
+	namespace := labels["namespace"]
+	if cluster == "" && service == "" && namespace == "" {
+		return nil
+	}
+	return &oncalltypes.AlertTarget{
+		Cluster:   cluster,
+		Service:   service,
+		Namespace: namespace,
+	}
+}
+
+// extractTitleFromRenderForWeb pulls the "title" field out of the render_for_web
+// blob the OnCall API attaches to alert groups.
+func extractTitleFromRenderForWeb(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var rfw struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(data, &rfw); err != nil {
+		return ""
+	}
+	return rfw.Title
+}
+
+// extractIntegrationRef parses the alert_receive_channel object from an alert
+// group response. The internal API returns an object on the get endpoint and
+// either an object or a bare ID string on list endpoints.
+func extractIntegrationRef(data json.RawMessage) oncalltypes.IntegrationRef {
+	if len(data) == 0 || string(data) == "null" {
+		return oncalltypes.IntegrationRef{}
+	}
+	var asObj struct {
+		ID         string `json:"id"`
+		VerbalName string `json:"verbal_name"`
+		Type       string `json:"integration"`
+	}
+	if err := json.Unmarshal(data, &asObj); err == nil && asObj.ID != "" {
+		return oncalltypes.IntegrationRef{
+			ID:   asObj.ID,
+			Name: asObj.VerbalName,
+			Type: asObj.Type,
+		}
+	}
+	// fallback: bare ID string.
+	var asStr string
+	if err := json.Unmarshal(data, &asStr); err == nil {
+		return oncalltypes.IntegrationRef{ID: asStr}
+	}
+	return oncalltypes.IntegrationRef{}
+}
+
+// extractTeamID returns the team identifier (PK) from the API's team field,
+// which can be a string ID, a {pk: ...} object, or null.
+func extractTeamID(data json.RawMessage) string {
+	if len(data) == 0 || string(data) == "null" {
+		return ""
+	}
+	var asStr string
+	if err := json.Unmarshal(data, &asStr); err == nil && asStr != "" {
+		return asStr
+	}
+	var asObj struct {
+		PK string `json:"pk"`
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(data, &asObj); err == nil {
+		return firstNonEmpty(asObj.PK, asObj.ID)
+	}
+	return ""
+}
+
+// extractAlertGroupLinks decodes the permalinks blob.
+func extractAlertGroupLinks(data json.RawMessage) oncalltypes.AlertGroupLinks {
+	if len(data) == 0 || string(data) == "null" {
+		return oncalltypes.AlertGroupLinks{}
+	}
+	var links oncalltypes.AlertGroupLinks
+	_ = json.Unmarshal(data, &links)
+	return links
+}
+
+// extractRawRequestDataFromLastAlert pulls raw_request_data out of the last_alert
+// object embedded on an alert group response (only present on the get endpoint).
+func extractRawRequestDataFromLastAlert(lastAlert json.RawMessage) (rawRequestData, bool) {
+	var out rawRequestData
+	if len(lastAlert) == 0 || string(lastAlert) == "null" {
+		return out, false
+	}
+	var wrapper struct {
+		Raw json.RawMessage `json:"raw_request_data"`
+	}
+	if err := json.Unmarshal(lastAlert, &wrapper); err != nil {
+		return out, false
+	}
+	if len(wrapper.Raw) == 0 || string(wrapper.Raw) == "null" {
+		return out, false
+	}
+	if err := json.Unmarshal(wrapper.Raw, &out); err != nil {
+		return out, false
+	}
+	return out, true
+}
+
+// firstAlertOrNil returns &alerts[0] if the slice is non-empty, else nil.
+func firstAlertOrNil(alerts []amAlertRaw) *amAlertRaw {
+	if len(alerts) == 0 {
+		return nil
+	}
+	return &alerts[0]
+}
+
+// toAlertmanagerAlerts normalizes amAlertRaw entries into the public AlertmanagerAlert shape.
+func toAlertmanagerAlerts(in []amAlertRaw) []oncalltypes.AlertmanagerAlert {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]oncalltypes.AlertmanagerAlert, len(in))
+	for i, a := range in {
+		out[i] = oncalltypes.AlertmanagerAlert{
+			Status:       a.Status,
+			Labels:       parseStringMap(a.Labels),
+			Annotations:  parseStringMap(a.Annotations),
+			Fingerprint:  a.Fingerprint,
+			GeneratorURL: a.GeneratorURL,
+			StartsAt:     a.StartsAt,
+			EndsAt:       a.EndsAt,
+			RuleUID:      a.RuleUID,
+			DashboardURL: a.DashboardURL,
+			PanelURL:     a.PanelURL,
+			SilenceURL:   a.SilenceURL,
+		}
+	}
+	return out
+}

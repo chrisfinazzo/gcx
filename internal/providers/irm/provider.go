@@ -52,6 +52,7 @@ func (p *IRMProvider) Commands() []*cobra.Command {
 		newResolutionNotesCmd(loader),
 		newShiftSwapsCmd(loader),
 		newEscalateCommand(loader),
+		newSpikeCmd(loader),
 	)
 
 	irmCmd.AddCommand(oncallCmd)

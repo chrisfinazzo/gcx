@@ -6,16 +6,43 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers/irm/oncalltypes"
 	"github.com/grafana/gcx/internal/style"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+// orderedYAMLCodec encodes via go-yaml directly (instead of the default
+// JSON→YAML round trip used by format.YAMLCodec). The default path goes through
+// sigs.k8s.io/yaml.JSONToYAML which loses object-key order; this codec
+// preserves Go struct field declaration order via go-yaml's UseJSONMarshaler
+// — required because the rich AlertGroup/Alert envelope's status block has a
+// deliberately non-alphabetical field order optimized for SRE drilldown.
+type orderedYAMLCodec struct{ noDecodeCodec }
+
+func (c *orderedYAMLCodec) Format() format.Format { return format.YAML }
+
+func (c *orderedYAMLCodec) Encode(w io.Writer, v any) error {
+	return goyaml.NewEncoder(w, goyaml.Indent(2), goyaml.IndentSequence(true), goyaml.UseJSONMarshaler()).Encode(v)
+}
+
+// alertGroupsListAlertsCap is the default ceiling on per-call alert retrieval.
+// Override with `--limit` (0 = no limit).
+const alertGroupsListAlertsCap = 100
+
+// alertGroupsListAlertsConcurrency bounds the N+1 retrieve fan-out.
+const alertGroupsListAlertsConcurrency = 10
 
 // ---------------------------------------------------------------------------
 // alert-groups command: list, get, actions, list-alerts
@@ -25,11 +52,46 @@ type alertGroupListOpts struct {
 	listOpts
 
 	MaxAge string
+
+	// Filter flags. See ADR 001 § 1 (alert-groups list defaults).
+	States             []string
+	Teams              []string
+	Integrations       []string
+	Mine               bool
+	WithResolutionNote bool
+	HasRelatedIncident bool
+	All                bool
+	IncludeChildGroups bool
 }
 
 func (o *alertGroupListOpts) setup(flags *pflag.FlagSet) {
 	o.listOpts.setup(flags, "alert-groups")
 	flags.StringVar(&o.MaxAge, "max-age", "", "Exclude groups older than this duration (e.g. 1h, 24h, 7d)")
+	flags.StringSliceVar(&o.States, "state", nil, "Filter by state (firing|acknowledged|resolved|silenced; repeatable, comma-separated). Default: firing,acknowledged,silenced")
+	flags.StringSliceVar(&o.Teams, "team", nil, "Filter by team PK (repeatable, comma-separated)")
+	flags.StringSliceVar(&o.Integrations, "integration", nil, "Filter by integration PK (repeatable, comma-separated)")
+	flags.BoolVar(&o.Mine, "mine", false, "Limit to alert groups for the authenticated user")
+	flags.BoolVar(&o.WithResolutionNote, "with-resolution-note", false, "Limit to alert groups that have a resolution note")
+	flags.BoolVar(&o.HasRelatedIncident, "has-related-incident", false, "Limit to alert groups linked to an incident")
+	flags.BoolVar(&o.All, "all", false, "Bypass the default status and is_root filters (returns resolved groups and child groups too)")
+	flags.BoolVar(&o.IncludeChildGroups, "include-child-groups", false, "Include child groups (drops the is_root filter while keeping the status default)")
+}
+
+// stateNameToInt translates a user-facing state name into the OnCall internal
+// API integer wire encoding. Accepted: firing|new, acknowledged|ack,
+// resolved, silenced.
+func stateNameToInt(name string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "firing", "new":
+		return 0, true
+	case "acknowledged", "ack":
+		return 1, true
+	case "resolved":
+		return 2, true
+	case "silenced":
+		return 3, true
+	}
+	return 0, false
 }
 
 func newAlertGroupsCommand(loader OnCallConfigLoader) *cobra.Command {
@@ -42,10 +104,7 @@ func newAlertGroupsCommand(loader OnCallConfigLoader) *cobra.Command {
 	cmd.AddCommand(
 		newAlertGroupListCommand(loader),
 		newAlertGroupListAlertsCommand(loader),
-		newGetSubcommand(loader, "Get an alert group by ID.",
-			func(ctx context.Context, c OnCallAPI, name string) (*AlertGroup, error) {
-				return c.GetAlertGroup(ctx, name)
-			}),
+		newAlertGroupGetRichCommand(loader),
 		newAlertGroupActionCommand(loader, "acknowledge", "Acknowledge an alert group.", func(c OnCallAPI, cmd *cobra.Command, id string) error {
 			return c.AcknowledgeAlertGroup(cmd.Context(), id)
 		}),
@@ -70,13 +129,91 @@ func newAlertGroupsCommand(loader OnCallConfigLoader) *cobra.Command {
 	return cmd
 }
 
+// alertGroupListFilters is the resolved set of filters applied to the
+// alertgroups list endpoint. Built from alertGroupListOpts after default
+// resolution; passed through both the OAuth-proxy path (listAlertGroupsRaw)
+// and the SA-token legacy path (listAlertGroupsLegacy).
+type alertGroupListFilters struct {
+	MaxAge             string
+	Statuses           []int
+	IsRoot             *bool
+	Teams              []string
+	Integrations       []string
+	Mine               bool
+	WithResolutionNote bool
+	HasRelatedIncident bool
+}
+
+// resolveAlertGroupListFilters validates and normalizes the user-facing flag
+// set into wire-ready filters, applying ADR 001 § 1 defaults:
+//   - status defaults to firing+acknowledged+silenced (excluding resolved),
+//   - is_root=true is always applied (excluding child groups merged into parents),
+//   - --all bypasses both defaults,
+//   - --include-child-groups drops is_root but keeps the status default,
+//   - explicit --state always wins (still subject to --include-child-groups for is_root).
+func resolveAlertGroupListFilters(cmd *cobra.Command, opts *alertGroupListOpts) (alertGroupListFilters, error) {
+	out := alertGroupListFilters{
+		MaxAge:             opts.MaxAge,
+		Teams:              opts.Teams,
+		Integrations:       opts.Integrations,
+		Mine:               opts.Mine,
+		WithResolutionNote: opts.WithResolutionNote,
+		HasRelatedIncident: opts.HasRelatedIncident,
+	}
+
+	// Translate user-facing state names into the internal wire encoding.
+	stateExplicit := cmd.Flags().Changed("state")
+	if stateExplicit {
+		for _, name := range opts.States {
+			s := strings.TrimSpace(name)
+			if s == "" {
+				continue
+			}
+			n, ok := stateNameToInt(s)
+			if !ok {
+				return out, fmt.Errorf("invalid --state value %q: must be one of firing, acknowledged, resolved, silenced", name)
+			}
+			out.Statuses = append(out.Statuses, n)
+		}
+	}
+
+	if !opts.All {
+		// Default status filter: firing, acknowledged, silenced.
+		if !stateExplicit {
+			out.Statuses = []int{0, 1, 3}
+		}
+		// Default is_root=true unless the user opted into child groups.
+		if !opts.IncludeChildGroups {
+			t := true
+			out.IsRoot = &t
+		}
+	}
+
+	return out, nil
+}
+
+const alertGroupListLong = `List alert groups.
+
+By default, lists root alert groups (excluding child groups merged into parents) in
+firing, acknowledged, or silenced state. Resolved groups are excluded.
+
+Use --all to bypass these defaults entirely (returns resolved and child groups too).
+Use --state to override the status filter (e.g. --state firing,acknowledged).
+Use --include-child-groups to keep the status default but include child groups.`
+
 func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 	opts := &alertGroupListOpts{}
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List alert groups.",
+		Long:  alertGroupListLong,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := opts.IO.Validate(); err != nil {
+				return err
+			}
+
+			filters, err := resolveAlertGroupListFilters(cmd, opts)
+			if err != nil {
 				return err
 			}
 
@@ -85,24 +222,33 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 				return err
 			}
 
-			var listOpts []oncalltypes.ListOption
-			if opts.MaxAge != "" {
-				dur, err := parseDuration(opts.MaxAge)
+			// Best-effort rich shape via the OAuth proxy path. SA-token mode
+			// (oncallpublic) doesn't speak the internal API, so fall back to
+			// the legacy AlertGroup shape there — fields that aren't on that
+			// type just stay empty (omitempty).
+			oc, ok := client.(*OnCallClient)
+			if !ok {
+				return listAlertGroupsLegacy(cmd, opts, filters, client, namespace)
+			}
+
+			rawItems, err := listAlertGroupsRaw(cmd.Context(), oc, filters)
+			if err != nil {
+				return err
+			}
+
+			teams, _ := oc.resolveTeams(cmd.Context()) // best-effort
+
+			objs := make([]unstructured.Unstructured, 0, len(rawItems))
+			for _, item := range rawItems {
+				api, rich, err := listAlertGroupRichFromBytes(item, teams)
 				if err != nil {
-					return fmt.Errorf("invalid --max-age value %q: %w", opts.MaxAge, err)
+					return err
 				}
-				cutoff := time.Now().UTC().Add(-dur)
-				listOpts = append(listOpts, oncalltypes.WithStartedAfter(cutoff))
-			}
-
-			items, err := client.ListAlertGroups(cmd.Context(), listOpts...)
-			if err != nil {
-				return err
-			}
-
-			objs, err := itemsToUnstructured(items, "AlertGroup", "pk", namespace)
-			if err != nil {
-				return err
+				obj, err := alertGroupRichToUnstructured(api, rich, namespace)
+				if err != nil {
+					return err
+				}
+				objs = append(objs, obj)
 			}
 
 			return opts.IO.Encode(cmd.OutOrStdout(), objs)
@@ -110,6 +256,149 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 	}
 	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// listAlertGroupsLegacy is the SA-token-mode fallback that goes through the
+// public-API client (which doesn't return the rich shape). The public API
+// supports a smaller filter set than the internal API; unsupported filters
+// are passed through to the public client which silently ignores them, and
+// we surface a `note:` warning here so the user knows.
+func listAlertGroupsLegacy(cmd *cobra.Command, opts *alertGroupListOpts, filters alertGroupListFilters, client OnCallAPI, namespace string) error {
+	var listOpts []oncalltypes.ListOption
+	if filters.MaxAge != "" {
+		dur, err := parseDuration(filters.MaxAge)
+		if err != nil {
+			return fmt.Errorf("invalid --max-age value %q: %w", filters.MaxAge, err)
+		}
+		cutoff := time.Now().UTC().Add(-dur)
+		listOpts = append(listOpts, oncalltypes.WithStartedAfter(cutoff))
+	}
+	if len(filters.Statuses) > 0 {
+		listOpts = append(listOpts, oncalltypes.WithStatuses(filters.Statuses...))
+	}
+	if len(filters.Teams) > 0 {
+		listOpts = append(listOpts, oncalltypes.WithTeams(filters.Teams...))
+	}
+	if len(filters.Integrations) > 0 {
+		listOpts = append(listOpts, oncalltypes.WithIntegrations(filters.Integrations...))
+	}
+
+	// Surface unsupported-filter warnings once at the command edge — the
+	// public API doesn't speak is_root, mine, with_resolution_note, or
+	// has_related_incident. Honor what we can and tell the user about the
+	// rest.
+	var unsupported []string
+	if filters.IsRoot != nil {
+		unsupported = append(unsupported, "is_root (root-only / include-child-groups)")
+	}
+	if filters.Mine {
+		unsupported = append(unsupported, "--mine")
+	}
+	if filters.WithResolutionNote {
+		unsupported = append(unsupported, "--with-resolution-note")
+	}
+	if filters.HasRelatedIncident {
+		unsupported = append(unsupported, "--has-related-incident")
+	}
+	if len(unsupported) > 0 {
+		fmt.Fprintf(os.Stderr, "note: SA-token mode uses the OnCall public API which does not honor: %s\n", strings.Join(unsupported, ", "))
+	}
+
+	items, err := client.ListAlertGroups(cmd.Context(), listOpts...)
+	if err != nil {
+		return err
+	}
+	objs, err := itemsToUnstructured(items, "AlertGroup", "pk", namespace)
+	if err != nil {
+		return err
+	}
+	return opts.IO.Encode(cmd.OutOrStdout(), objs)
+}
+
+// listAlertGroupsRaw issues the paginated GET against alertgroups/?... and
+// returns the per-item raw JSON for downstream rich conversion. Pagination is
+// followed in-order; the function applies an internal cap of 1000 items to
+// avoid runaway memory.
+func listAlertGroupsRaw(ctx context.Context, c *OnCallClient, filters alertGroupListFilters) ([]json.RawMessage, error) {
+	params := url.Values{}
+	if filters.MaxAge != "" {
+		dur, err := parseDuration(filters.MaxAge)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --max-age value %q: %w", filters.MaxAge, err)
+		}
+		const layout = "2006-01-02T15:04:05"
+		start := time.Now().UTC().Add(-dur).Format(layout)
+		end := time.Now().UTC().Format(layout)
+		params.Set("started_at", start+"_"+end)
+	}
+	for _, s := range filters.Statuses {
+		params.Add("status", fmt.Sprintf("%d", s))
+	}
+	if filters.IsRoot != nil {
+		if *filters.IsRoot {
+			params.Set("is_root", "true")
+		} else {
+			params.Set("is_root", "false")
+		}
+	}
+	for _, t := range filters.Teams {
+		params.Add("team", t)
+	}
+	for _, i := range filters.Integrations {
+		params.Add("integration", i)
+	}
+	if filters.Mine {
+		params.Set("mine", "true")
+	}
+	if filters.WithResolutionNote {
+		params.Set("with_resolution_note", "true")
+	}
+	if filters.HasRelatedIncident {
+		params.Set("has_related_incident", "true")
+	}
+	path := alertGroupsPath
+	if len(params) > 0 {
+		path = path + "?" + params.Encode()
+	}
+
+	const hardCap = 1000
+	var out []json.RawMessage
+	next := path
+	for next != "" {
+		resp, err := c.DoRequest(ctx, http.MethodGet, next, nil)
+		if err != nil {
+			return nil, fmt.Errorf("irm: list alert groups: %w", err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("irm: list alert groups: HTTP %d: %s", resp.StatusCode, string(body))
+		}
+		var page struct {
+			Results []json.RawMessage `json:"results"`
+			Next    *string           `json:"next"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("irm: decode alert groups: %w", err)
+		}
+		out = append(out, page.Results...)
+		if len(out) >= hardCap {
+			out = out[:hardCap]
+			break
+		}
+		if page.Next == nil || *page.Next == "" {
+			break
+		}
+		np, err := ExtractNextPath(*page.Next)
+		if err != nil {
+			return nil, err
+		}
+		next = np
+	}
+	return out, nil
 }
 
 func parseDuration(s string) (time.Duration, error) {
@@ -122,8 +411,74 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
+// alertGroupGetRichOpts mirrors getOpts but uses Yaml as default.
+type alertGroupGetRichOpts struct {
+	IO         cmdio.Options
+	IncludeRaw bool
+}
+
+func (o *alertGroupGetRichOpts) setup(flags *pflag.FlagSet) {
+	o.IO.RegisterCustomCodec("yaml", &orderedYAMLCodec{})
+	o.IO.DefaultFormat("yaml")
+	o.IO.BindFlags(flags)
+	flags.BoolVar(&o.IncludeRaw, "include-raw", false, "Include the unprocessed Alertmanager-shape payload under status.raw (hidden by default; the curated status.{target,links,...} blocks are the promoted view of the same data)")
+}
+
+func newAlertGroupGetRichCommand(loader OnCallConfigLoader) *cobra.Command {
+	opts := &alertGroupGetRichOpts{}
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Get an alert group by ID.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := opts.IO.Validate(); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			client, namespace, err := loader.LoadOnCallClient(ctx)
+			if err != nil {
+				return err
+			}
+			oc, ok := client.(*OnCallClient)
+			if !ok {
+				return errors.New("alert-groups get requires the OAuth plugin proxy (this context uses an SA token)")
+			}
+
+			api, rich, err := oc.GetAlertGroupRich(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if !opts.IncludeRaw {
+				rich.Status.Raw = nil
+			}
+			env, err := alertGroupRichToEnvelope(api, rich, namespace)
+			if err != nil {
+				return err
+			}
+			return opts.IO.Encode(cmd.OutOrStdout(), env)
+		},
+	}
+	opts.setup(cmd.Flags())
+	return cmd
+}
+
+type alertGroupListAlertsOpts struct {
+	listOpts
+	Slim       bool
+	Limit      int
+	IncludeRaw bool
+}
+
+func (o *alertGroupListAlertsOpts) setup(flags *pflag.FlagSet) {
+	o.listOpts.setup(flags, "alerts")
+	o.IO.RegisterCustomCodec("yaml", &orderedYAMLCodec{})
+	flags.BoolVar(&o.Slim, "slim", false, "Skip per-alert retrieval; emit only metadata + alert-group back-pointer")
+	flags.IntVar(&o.Limit, "limit", alertGroupsListAlertsCap, "Cap on number of alerts retrieved (0 = no cap)")
+	flags.BoolVar(&o.IncludeRaw, "include-raw", false, "Include the unprocessed Alertmanager-shape payload under status.raw on each alert (hidden by default; status.{target,links,...} are the promoted view of the same data)")
+}
+
 func newAlertGroupListAlertsCommand(loader OnCallConfigLoader) *cobra.Command {
-	opts := &listOpts{}
+	opts := &alertGroupListAlertsOpts{}
 	cmd := &cobra.Command{
 		Use:   "list-alerts <alert-group-id>",
 		Short: "List individual alerts for an alert group.",
@@ -132,27 +487,131 @@ func newAlertGroupListAlertsCommand(loader OnCallConfigLoader) *cobra.Command {
 			if err := opts.IO.Validate(); err != nil {
 				return err
 			}
+			ctx := cmd.Context()
+			groupID := args[0]
 
-			client, namespace, err := loader.LoadOnCallClient(cmd.Context())
+			client, namespace, err := loader.LoadOnCallClient(ctx)
 			if err != nil {
 				return err
 			}
+			oc, ok := client.(*OnCallClient)
+			if !ok {
+				// Fall back to the slim public-API alerts list — no rich shape.
+				items, err := client.ListAlerts(ctx, groupID)
+				if err != nil {
+					return err
+				}
+				objs, err := itemsToUnstructured(items, "Alert", "id", namespace)
+				if err != nil {
+					return err
+				}
+				return opts.IO.Encode(cmd.OutOrStdout(), objs)
+			}
 
-			items, err := client.ListAlerts(cmd.Context(), args[0])
+			limit := opts.Limit
+			ids, total, err := oc.listAlertIDs(ctx, groupID, limit)
 			if err != nil {
 				return err
 			}
+			if limit > 0 && len(ids) > limit {
+				ids = ids[:limit]
+			}
+			if limit > 0 && total > len(ids) {
+				fmt.Fprintf(os.Stderr, "warn: retrieved %d of %d alerts; pass `--limit 0` to fetch all\n", len(ids), total)
+			}
 
-			objs, err := itemsToUnstructured(items, "Alert", "id", namespace)
+			if opts.Slim {
+				envs := make([]alertEnvelope, 0, len(ids))
+				for _, id := range ids {
+					envs = append(envs, slimAlertEnvelope(id, groupID, namespace))
+				}
+				return opts.IO.Encode(cmd.OutOrStdout(), envs)
+			}
+
+			envs, err := fetchAlertsRichConcurrent(ctx, oc, ids, groupID, namespace, opts.IncludeRaw)
 			if err != nil {
 				return err
 			}
-
-			return opts.IO.Encode(cmd.OutOrStdout(), objs)
+			return opts.IO.Encode(cmd.OutOrStdout(), envs)
 		},
 	}
-	opts.setup(cmd.Flags(), "alerts")
+	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// slimAlertEnvelope builds a typed envelope for an alert without the rich
+// status block — used for `--slim` output that skips the N+1 fetch.
+func slimAlertEnvelope(id, groupID, namespace string) alertEnvelope {
+	return alertEnvelope{
+		APIVersion: APIVersion,
+		Kind:       "Alert",
+		Metadata: k8sMetadata{
+			Name:      id,
+			Namespace: namespace,
+		},
+		Spec: oncalltypes.AlertSpec{AlertGroupID: groupID},
+	}
+}
+
+// fetchAlertsRichConcurrent fans out alert retrieves with bounded concurrency.
+// On error from any single retrieve, the function aborts and returns the first error.
+func fetchAlertsRichConcurrent(ctx context.Context, c *OnCallClient, ids []string, groupID, namespace string, includeRaw bool) ([]alertEnvelope, error) {
+	results := make([]alertEnvelope, len(ids))
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(alertGroupsListAlertsConcurrency)
+	for i, id := range ids {
+		i, id := i, id
+		g.Go(func() error {
+			api, rich, err := c.GetAlertRich(gctx, id)
+			if err != nil {
+				return fmt.Errorf("alert %s: %w", id, err)
+			}
+			if !includeRaw {
+				rich.Status.Raw = nil
+			}
+			env, err := alertRichToEnvelope(api, rich, groupID, namespace)
+			if err != nil {
+				return err
+			}
+			results[i] = env
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// slimAlertObject builds a minimal Alert envelope with no status payload —
+// used by --slim and SA-token fallback paths.
+func slimAlertObject(id, groupID, state, createdAt, namespace string) unstructured.Unstructured {
+	metadata := map[string]any{
+		"name":      id,
+		"namespace": namespace,
+	}
+	if createdAt != "" {
+		metadata["creationTimestamp"] = createdAt
+	}
+	spec := map[string]any{}
+	if groupID != "" {
+		spec["alertGroupID"] = groupID
+	}
+	status := map[string]any{}
+	if state != "" {
+		status["state"] = state
+	}
+	obj := map[string]any{
+		"apiVersion": APIVersion,
+		"kind":       "Alert",
+		"metadata":   metadata,
+		"spec":       spec,
+	}
+	if len(status) > 0 {
+		obj["status"] = status
+	}
+	return unstructured.Unstructured{Object: obj}
 }
 
 type alertGroupActionOpts struct {
@@ -478,6 +937,205 @@ func itemsToUnstructured[T any](items []T, kind, idField, namespace string) ([]u
 		objs = append(objs, obj)
 	}
 	return objs, nil
+}
+
+// alertGroupRichToUnstructured builds the K8s envelope for an AlertGroup,
+// lifting top-level "spec" and "status" out of AlertGroupRich and pulling
+// metadata fields (name, creationTimestamp, namespace, labels) out of the api blob.
+func alertGroupRichToUnstructured(api *alertGroupAPI, rich *oncalltypes.AlertGroupRich, namespace string) (unstructured.Unstructured, error) {
+	if api == nil || rich == nil {
+		return unstructured.Unstructured{}, errors.New("internal: nil api or rich payload")
+	}
+
+	bytes, err := json.Marshal(rich)
+	if err != nil {
+		return unstructured.Unstructured{}, fmt.Errorf("marshal alert group rich: %w", err)
+	}
+	var richMap map[string]any
+	if err := json.Unmarshal(bytes, &richMap); err != nil {
+		return unstructured.Unstructured{}, fmt.Errorf("unmarshal alert group rich: %w", err)
+	}
+
+	metadata := map[string]any{
+		"name":      api.PK,
+		"namespace": namespace,
+	}
+	if api.StartedAt != "" {
+		metadata["creationTimestamp"] = api.StartedAt
+	}
+	// OnCall labels — pass through verbatim if present and an array.
+	if labels := decodeOnCallLabels(api); labels != nil {
+		metadata["labels"] = labels
+	}
+
+	obj := map[string]any{
+		"apiVersion": APIVersion,
+		"kind":       "AlertGroup",
+		"metadata":   metadata,
+	}
+	if v, ok := richMap["spec"]; ok {
+		obj["spec"] = v
+	}
+	if v, ok := richMap["status"]; ok {
+		obj["status"] = v
+	}
+	return unstructured.Unstructured{Object: obj}, nil
+}
+
+// decodeOnCallLabels extracts the OnCall app's user-set labels[] off the alert
+// group payload and returns them as a {key: value} map for inclusion under
+// metadata.labels. Returns nil when no usable labels are present.
+//
+// The OnCall internal API serializes labels as `[{"key": {...}, "value": {...}}, ...]`
+// where each side is itself an object — we accept either string or {name|repr|id}
+// nested forms as the value to be friendly to schema variation.
+func decodeOnCallLabels(api *alertGroupAPI) map[string]any {
+	if len(api.Labels) == 0 || string(api.Labels) == "null" {
+		return nil
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(api.Labels, &arr); err != nil {
+		return nil
+	}
+	out := map[string]any{}
+	for _, lbl := range arr {
+		k := lblFieldString(lbl["key"])
+		v := lblFieldString(lbl["value"])
+		if k != "" {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// lblFieldString coerces a label key/value field into a flat string. Strings
+// pass through; nested objects yield the first non-empty of name/repr/id.
+func lblFieldString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case map[string]any:
+		for _, k := range []string{"name", "repr", "id"} {
+			if s, ok := t[k].(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// k8sMetadata is a typed metadata block with explicit field order (name,
+// namespace, creationTimestamp, labels). Used by the typed envelope structs
+// below to render meaningful YAML order through go-yaml's struct-aware encoder.
+type k8sMetadata struct {
+	Name              string         `json:"name" yaml:"name"`
+	Namespace         string         `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	CreationTimestamp string         `json:"creationTimestamp,omitempty" yaml:"creationTimestamp,omitempty"`
+	Labels            map[string]any `json:"labels,omitempty" yaml:"labels,omitempty"`
+}
+
+// alertGroupEnvelope is the K8s-style envelope for a single AlertGroup with
+// fields in a meaningful order — used in place of unstructured.Unstructured
+// where ordered YAML/JSON output matters (i.e., the get-style commands).
+type alertGroupEnvelope struct {
+	APIVersion string                       `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                       `json:"kind" yaml:"kind"`
+	Metadata   k8sMetadata                  `json:"metadata" yaml:"metadata"`
+	Spec       oncalltypes.AlertGroupSpec   `json:"spec" yaml:"spec"`
+	Status     oncalltypes.AlertGroupStatus `json:"status" yaml:"status"`
+}
+
+// alertEnvelope is the K8s-style envelope for a single Alert with explicit field order.
+type alertEnvelope struct {
+	APIVersion string                  `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                  `json:"kind" yaml:"kind"`
+	Metadata   k8sMetadata             `json:"metadata" yaml:"metadata"`
+	Spec       oncalltypes.AlertSpec   `json:"spec" yaml:"spec"`
+	Status     oncalltypes.AlertStatus `json:"status" yaml:"status"`
+}
+
+// alertGroupRichToEnvelope wraps the rich AlertGroup into the typed envelope
+// for ordered emission. Mirrors alertGroupRichToUnstructured but produces a
+// struct (not an unstructured map) so JSON/YAML encoders preserve field order.
+func alertGroupRichToEnvelope(api *alertGroupAPI, rich *oncalltypes.AlertGroupRich, namespace string) (alertGroupEnvelope, error) {
+	if api == nil || rich == nil {
+		return alertGroupEnvelope{}, errors.New("internal: nil api or rich payload")
+	}
+	return alertGroupEnvelope{
+		APIVersion: APIVersion,
+		Kind:       "AlertGroup",
+		Metadata: k8sMetadata{
+			Name:              api.PK,
+			Namespace:         namespace,
+			CreationTimestamp: api.StartedAt,
+			Labels:            decodeOnCallLabels(api),
+		},
+		Spec:   rich.Spec,
+		Status: rich.Status,
+	}, nil
+}
+
+// alertRichToEnvelope wraps the rich Alert into the typed envelope.
+func alertRichToEnvelope(api *alertAPI, rich *oncalltypes.AlertRich, groupID, namespace string) (alertEnvelope, error) {
+	if api == nil || rich == nil {
+		return alertEnvelope{}, errors.New("internal: nil api or rich payload")
+	}
+	if rich.Spec.AlertGroupID == "" && groupID != "" {
+		rich.Spec.AlertGroupID = groupID
+	}
+	return alertEnvelope{
+		APIVersion: APIVersion,
+		Kind:       "Alert",
+		Metadata: k8sMetadata{
+			Name:              api.ID,
+			Namespace:         namespace,
+			CreationTimestamp: api.CreatedAt,
+		},
+		Spec:   rich.Spec,
+		Status: rich.Status,
+	}, nil
+}
+
+// alertRichToUnstructured builds the K8s envelope for a single Alert.
+func alertRichToUnstructured(api *alertAPI, rich *oncalltypes.AlertRich, groupID, namespace string) (unstructured.Unstructured, error) {
+	if api == nil || rich == nil {
+		return unstructured.Unstructured{}, errors.New("internal: nil api or rich payload")
+	}
+	if rich.Spec.AlertGroupID == "" && groupID != "" {
+		rich.Spec.AlertGroupID = groupID
+	}
+
+	bytes, err := json.Marshal(rich)
+	if err != nil {
+		return unstructured.Unstructured{}, fmt.Errorf("marshal alert rich: %w", err)
+	}
+	var richMap map[string]any
+	if err := json.Unmarshal(bytes, &richMap); err != nil {
+		return unstructured.Unstructured{}, fmt.Errorf("unmarshal alert rich: %w", err)
+	}
+
+	metadata := map[string]any{
+		"name":      api.ID,
+		"namespace": namespace,
+	}
+	if api.CreatedAt != "" {
+		metadata["creationTimestamp"] = api.CreatedAt
+	}
+	obj := map[string]any{
+		"apiVersion": APIVersion,
+		"kind":       "Alert",
+		"metadata":   metadata,
+	}
+	if v, ok := richMap["spec"]; ok {
+		obj["spec"] = v
+	}
+	if v, ok := richMap["status"]; ok {
+		obj["status"] = v
+	}
+	return unstructured.Unstructured{Object: obj}, nil
 }
 
 type finalShiftTableCodec struct{ noDecodeCodec }
