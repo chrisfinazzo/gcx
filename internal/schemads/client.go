@@ -18,6 +18,7 @@ const (
 	maxResponseBytes = 50 << 20 // 50 MB
 	basePath         = "abstractionSchema"
 	fullSchemaPath   = "fullSchema"
+	columnsPath      = "columns"
 )
 
 // Client fetches schema information from a Grafana datasource that
@@ -76,6 +77,54 @@ func (c *Client) FullSchema(ctx context.Context, datasourceUID string) (*Schema,
 		return &Schema{}, nil
 	}
 	return out.FullSchema, nil
+}
+
+// Columns returns the dynamic per-table columns for the given tables.
+// Unlike FullSchema, this includes columns that the datasource only knows
+// after binding to a specific table (e.g. Prometheus label dimensions).
+func (c *Client) Columns(ctx context.Context, datasourceUID string, tables []string, tableParameters map[string]string) (map[string][]Column, error) {
+	if len(tables) == 0 {
+		return map[string][]Column{}, nil
+	}
+	apiPath := c.buildPath(datasourceUID, columnsPath)
+
+	body, err := json.Marshal(struct {
+		Tables          []string          `json:"tables"`
+		TableParameters map[string]string `json:"tableParameters,omitempty"`
+	}{Tables: tables, TableParameters: tableParameters})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.restConfig.Host+apiPath, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch columns: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, queryerror.FromBody("schemads", "columns", resp.StatusCode, respBody)
+	}
+
+	var out ColumnsResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if out.Columns == nil {
+		out.Columns = map[string][]Column{}
+	}
+	return out.Columns, nil
 }
 
 func (c *Client) buildPath(datasourceUID, requestType string) string {

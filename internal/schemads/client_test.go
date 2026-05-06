@@ -2,6 +2,7 @@ package schemads_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,49 @@ func TestFullSchema_ErrorBody(t *testing.T) {
 	require.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
 	assert.Contains(t, strings.ToLower(apiErr.Message), "datasource not found")
+}
+
+func TestColumns_HappyPath(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		buf := make([]byte, 1024)
+		n, _ := r.Body.Read(buf)
+		_ = json.Unmarshal(buf[:n], &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"columns": {
+				"up": [
+					{"name": "timestamp", "type": "datetime"},
+					{"name": "value", "type": "float64"},
+					{"name": "instance", "type": "string", "operators": ["=", "in"]},
+					{"name": "job", "type": "string", "operators": ["=", "in"]}
+				]
+			}
+		}`))
+	}))
+
+	cols, err := client.Columns(context.Background(), "abc", []string{"up"}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.MethodPost, gotMethod)
+	assert.Equal(t, "/api/datasources/uid/abc/resources/abstractionSchema/columns", gotPath)
+	require.Equal(t, []any{"up"}, gotBody["tables"])
+
+	require.Len(t, cols["up"], 4)
+	assert.Equal(t, "instance", cols["up"][2].Name)
+	assert.Equal(t, []schemads.Operator{"=", "in"}, cols["up"][2].Operators)
+}
+
+func TestColumns_EmptyTablesIsNoOp(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called when tables is empty")
+	}))
+	cols, err := client.Columns(context.Background(), "abc", nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, cols)
 }
 
 func TestFullSchema_NilFullSchemaIsEmpty(t *testing.T) {

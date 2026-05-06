@@ -30,9 +30,21 @@ type Table struct {
 
 // Column is a single column in a Table.
 type Column struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
+	Name        string     `json:"name"`
+	Type        string     `json:"type"`
+	Description string     `json:"description,omitempty"`
+	Operators   []Operator `json:"operators,omitempty"`
+}
+
+// Operator is a filter operator a column supports.
+type Operator string
+
+// ColumnsResponse is the response body of the columns endpoint, keyed by
+// table name. The endpoint returns dynamic per-table columns (e.g. for a
+// Prometheus metric, label dimensions are included alongside timestamp/value).
+type ColumnsResponse struct {
+	Columns map[string][]Column `json:"columns"`
+	Errors  map[string]string   `json:"errors,omitempty"`
 }
 
 // TableParameter is a parameter accepted by a parameterised table.

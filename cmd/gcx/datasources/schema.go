@@ -68,6 +68,20 @@ respond; others return 404 or 501.`,
 				return fmt.Errorf("failed to fetch schema: %w", err)
 			}
 
+			// When the user drills into a single table, also fetch the
+			// dynamic columns for that table — fullSchema only returns
+			// static columns (e.g. for Prometheus, just timestamp/value;
+			// label dimensions like job/instance only show up here).
+			if opts.Table != "" {
+				cols, err := client.Columns(ctx, args[0], []string{opts.Table}, nil)
+				if err != nil {
+					return fmt.Errorf("failed to fetch columns for %q: %w", opts.Table, err)
+				}
+				if dyn, ok := cols[opts.Table]; ok {
+					mergeDynamicColumns(schema, opts.Table, dyn)
+				}
+			}
+
 			view := buildSchemaView(schema, opts)
 			return opts.IO.Encode(cmd.OutOrStdout(), view)
 		},
@@ -76,6 +90,19 @@ respond; others return 404 or 501.`,
 	configOpts.BindFlags(cmd.Flags())
 	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// mergeDynamicColumns replaces the columns of the named table in s with the
+// dynamic columns returned by the columns endpoint. The match is
+// case-insensitive to align with --table resolution. No-op when the table is
+// not in the schema.
+func mergeDynamicColumns(s *schemads.Schema, name string, cols []schemads.Column) {
+	for i := range s.Tables {
+		if strings.EqualFold(s.Tables[i].Name, name) {
+			s.Tables[i].Columns = cols
+			return
+		}
+	}
 }
 
 type schemaOpts struct {
@@ -203,9 +230,13 @@ func renderSingleTable(w io.Writer, t *schemads.Table) error {
 
 	if len(t.Columns) > 0 {
 		fmt.Fprintln(w, "Columns:")
-		ct := style.NewTable("NAME", "TYPE", "DESCRIPTION")
+		ct := style.NewTable("NAME", "TYPE", "OPERATORS", "DESCRIPTION")
 		for _, c := range t.Columns {
-			ct.Row(c.Name, c.Type, c.Description)
+			ops := make([]string, len(c.Operators))
+			for i, o := range c.Operators {
+				ops[i] = string(o)
+			}
+			ct.Row(c.Name, c.Type, strings.Join(ops, " "), c.Description)
 		}
 		if err := ct.Render(w); err != nil {
 			return err
