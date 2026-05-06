@@ -5,7 +5,8 @@ package config
 // Resolution order:
 //  1. ctx.Datasources[kind] (new per-kind section) — takes precedence
 //  2. Legacy flat field: DefaultPrometheusDatasource / DefaultLokiDatasource / DefaultPyroscopeDatasource
-//  3. Returns "" if neither is set; callers are responsible for emitting an error.
+//  3. Legacy kind aliases (e.g., "synth" for "synthetic-monitoring") for back-compat
+//  4. Returns "" if neither is set; callers are responsible for emitting an error.
 func DefaultDatasourceUID(ctx Context, kind string) string {
 	if uid := ctx.Datasources[kind]; uid != "" {
 		return uid
@@ -20,6 +21,9 @@ func DefaultDatasourceUID(ctx Context, kind string) string {
 		return ctx.DefaultPyroscopeDatasource
 	case "tempo":
 		return ctx.DefaultTempoDatasource
+	case "synthetic-monitoring":
+		// Back-compat: pre-rename configs used the "synth" key.
+		return ctx.Datasources["synth"]
 	}
 
 	return ""

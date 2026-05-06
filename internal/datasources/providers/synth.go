@@ -13,7 +13,8 @@ func init() { //nolint:gochecknoinits // Self-registration pattern (like databas
 
 type synthDSProvider struct{}
 
-func (p *synthDSProvider) Kind() string      { return "synth" }
+func (p *synthDSProvider) Kind() string      { return "synthetic-monitoring" }
+func (p *synthDSProvider) Aliases() []string { return []string{"sm", "synth"} }
 func (p *synthDSProvider) ShortDesc() string { return "Query Synthetic Monitoring datasources" }
 
 func (p *synthDSProvider) QueryCmd(loader *providers.ConfigLoader) *cobra.Command {

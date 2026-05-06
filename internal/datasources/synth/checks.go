@@ -24,7 +24,7 @@ type checksOpts struct {
 
 func (opts *checksOpts) setup(flags *pflag.FlagSet) {
 	opts.IO.BindFlags(flags)
-	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless default-synth-datasource is configured)")
+	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless datasources.synthetic-monitoring is configured)")
 	flags.BoolVar(&opts.WithAlerts, "with-alerts", false, "Include each check's alert rules in the response (server-side composition via ?includeAlerts=true)")
 }
 
@@ -42,13 +42,13 @@ func ChecksCmd(loader *providers.ConfigLoader) *cobra.Command {
 		Long:  "List all checks accessible through the configured Synthetic Monitoring datasource.",
 		Example: `
   # List checks (use datasource UID, not name)
-  gcx datasources synth checks -d UID
+  gcx datasources synthetic-monitoring checks -d UID
 
   # List checks with their alert rules embedded (one server-side call)
-  gcx datasources synth checks -d UID --with-alerts
+  gcx datasources synthetic-monitoring checks -d UID --with-alerts
 
   # Output as JSON
-  gcx datasources synth checks -d UID -o json`,
+  gcx datasources synthetic-monitoring checks -d UID -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := opts.Validate(); err != nil {
@@ -69,7 +69,7 @@ func ChecksCmd(loader *providers.ConfigLoader) *cobra.Command {
 				logging.FromContext(ctx).Warn("could not load config; falling back to auto-discovery", slog.String("error", err.Error()))
 			}
 
-			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, opts.Datasource, cfgCtx, cfg, "synth")
+			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, opts.Datasource, cfgCtx, cfg, "synthetic-monitoring")
 			if err != nil {
 				return err
 			}

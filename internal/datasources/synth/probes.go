@@ -1,6 +1,7 @@
 // Package synth mounts Synthetic Monitoring as a dedicated datasource under
-// `gcx datasources synth ...`. Per-resource subcommands (probes, checks) are
-// registered as ExtraCommands on the synthDSProvider.
+// `gcx datasources synthetic-monitoring ...` (aliases: sm, synth). Per-resource
+// subcommands (probes, checks) are registered as ExtraCommands on the
+// synthDSProvider.
 //
 // HTTP transport lives in internal/query/synth — this package owns only the
 // cobra command surface and resource resolution.
@@ -28,7 +29,7 @@ type probesOpts struct {
 
 func (opts *probesOpts) setup(flags *pflag.FlagSet) {
 	opts.IO.BindFlags(flags)
-	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless default-synth-datasource is configured)")
+	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless datasources.synthetic-monitoring is configured)")
 }
 
 func (opts *probesOpts) Validate() error {
@@ -45,10 +46,10 @@ func ProbesCmd(loader *providers.ConfigLoader) *cobra.Command {
 		Long:  "List all probes accessible through the configured Synthetic Monitoring datasource.",
 		Example: `
   # List probes (use datasource UID, not name)
-  gcx datasources synth probes -d UID
+  gcx datasources synthetic-monitoring probes -d UID
 
   # Output as JSON
-  gcx datasources synth probes -d UID -o json`,
+  gcx datasources synthetic-monitoring probes -d UID -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := opts.Validate(); err != nil {
@@ -69,7 +70,7 @@ func ProbesCmd(loader *providers.ConfigLoader) *cobra.Command {
 				logging.FromContext(ctx).Warn("could not load config; falling back to auto-discovery", slog.String("error", err.Error()))
 			}
 
-			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, opts.Datasource, cfgCtx, cfg, "synth")
+			datasourceUID, err := dsquery.ResolveAndSaveDatasource(ctx, loader, opts.Datasource, cfgCtx, cfg, "synthetic-monitoring")
 			if err != nil {
 				return err
 			}

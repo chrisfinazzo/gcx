@@ -56,12 +56,12 @@ var commandAnnotations = map[string]annotation{
 	"gcx config view":            {Cost: "medium", Hint: "--minify -o json"},
 
 	// datasources
-	"gcx datasources get":          {Cost: "medium", Hint: "<uid> -o json"},
-	"gcx datasources list":         {Cost: "small"},
-	"gcx datasources query":        {Cost: "large", Hint: "Run gcx help-tree metrics (or logs, traces, profiles) to discover signal commands. Prefer gcx metrics query for PromQL, gcx logs query for LogQL, gcx traces query for TraceQL, gcx profiles query for profiling. Example: <datasource-uid> 'up' --since 1h -o json"},
-	"gcx datasources synth checks": {Cost: "medium", Hint: "-d <uid> --with-alerts -o json"},
-	"gcx datasources synth probes": {Cost: "small", Hint: "-d <uid> -o json"},
-	"gcx datasources synth query":  {Cost: "medium", Hint: "<datasource-uid> probes|checks -o json"},
+	"gcx datasources get":                         {Cost: "medium", Hint: "<uid> -o json"},
+	"gcx datasources list":                        {Cost: "small"},
+	"gcx datasources query":                       {Cost: "large", Hint: "Run gcx help-tree metrics (or logs, traces, profiles) to discover signal commands. Prefer gcx metrics query for PromQL, gcx logs query for LogQL, gcx traces query for TraceQL, gcx profiles query for profiling. Example: <datasource-uid> 'up' --since 1h -o json"},
+	"gcx datasources synthetic-monitoring checks": {Cost: "medium", Hint: "-d <uid> --with-alerts -o json"},
+	"gcx datasources synthetic-monitoring probes": {Cost: "small", Hint: "-d <uid> -o json"},
+	"gcx datasources synthetic-monitoring query":  {Cost: "medium", Hint: "<datasource-uid> probes|checks -o json"},
 
 	// dev
 	"gcx dev generate":   {Cost: "small"},

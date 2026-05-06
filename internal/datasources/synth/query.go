@@ -10,8 +10,8 @@ import (
 // QueryCmd is the `query` subcommand required by the DatasourceProvider
 // interface. SM has no single query verb, so this just routes to the
 // resource-specific subcommands (probes, checks). For most use cases the
-// dedicated subcommands are friendlier — `gcx datasources synth probes`
-// over `gcx datasources synth query probes`.
+// dedicated subcommands are friendlier — `gcx datasources synthetic-monitoring probes`
+// over `gcx datasources synthetic-monitoring query probes`.
 func QueryCmd(loader *providers.ConfigLoader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "query <probes|checks>",
@@ -20,8 +20,8 @@ func QueryCmd(loader *providers.ConfigLoader) *cobra.Command {
 SM has no single query verb; pass "probes" or "checks" to target a resource type.
 For most use cases, the dedicated subcommands are friendlier:
 
-  gcx datasources synth probes
-  gcx datasources synth checks`,
+  gcx datasources synthetic-monitoring probes
+  gcx datasources synthetic-monitoring checks`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {

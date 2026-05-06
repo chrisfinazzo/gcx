@@ -29,6 +29,9 @@ func Command() *cobra.Command {
 				}
 			},
 		}
+		if a, ok := dp.(interface{ Aliases() []string }); ok {
+			sub.Aliases = a.Aliases()
+		}
 		loader.BindFlags(sub.PersistentFlags())
 		sub.AddCommand(dp.QueryCmd(loader))
 		for _, extra := range dp.ExtraCommands(loader) {
