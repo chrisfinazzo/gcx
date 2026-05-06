@@ -299,7 +299,6 @@ var commandAnnotations = map[string]annotation{
 	"gcx irm oncall alert-groups unacknowledge": {Cost: "small"},
 	"gcx irm oncall alert-groups unresolve":     {Cost: "small"},
 	"gcx irm oncall alert-groups unsilence":     {Cost: "small"},
-	"gcx irm oncall alerts get":                 {Cost: "small"},
 	"gcx irm oncall escalate":                   {Cost: "small", Hint: "--title \"title\" --user-ids id1,id2"},
 	"gcx irm oncall escalation-chains get":      {Cost: "small"},
 	"gcx irm oncall escalation-chains list":     {Cost: "small"},

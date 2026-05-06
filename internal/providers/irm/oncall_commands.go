@@ -379,61 +379,6 @@ func newSlackChannelsCmd(loader OnCallConfigLoader) *cobra.Command {
 	return cmd
 }
 
-func newAlertsCmd(loader OnCallConfigLoader) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "alerts",
-		Short:   "View individual alerts.",
-		Aliases: []string{"alert"},
-	}
-	cmd.AddCommand(newAlertGetRichCommand(loader))
-	return cmd
-}
-
-func newAlertGetRichCommand(loader OnCallConfigLoader) *cobra.Command {
-	opts := &getOpts{}
-	var includeRaw bool
-	cmd := &cobra.Command{
-		Use:   "get <id>",
-		Short: "Get an alert by ID.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := opts.IO.Validate(); err != nil {
-				return err
-			}
-			ctx := cmd.Context()
-			client, namespace, err := loader.LoadOnCallClient(ctx)
-			if err != nil {
-				return err
-			}
-			oc, ok := client.(*OnCallClient)
-			if !ok {
-				// SA-token mode: fall back to the slim public API alert shape.
-				alert, err := client.GetAlert(ctx, args[0])
-				if err != nil {
-					return err
-				}
-				return opts.IO.Encode(cmd.OutOrStdout(), alert)
-			}
-			api, rich, err := oc.GetAlertRich(ctx, args[0])
-			if err != nil {
-				return err
-			}
-			if !includeRaw {
-				rich.Status.Raw = nil
-			}
-			env, err := alertRichToEnvelope(api, rich, "", namespace)
-			if err != nil {
-				return err
-			}
-			return opts.IO.Encode(cmd.OutOrStdout(), env)
-		},
-	}
-	opts.IO.RegisterCustomCodec("yaml", &orderedYAMLCodec{})
-	opts.setup(cmd.Flags())
-	cmd.Flags().BoolVar(&includeRaw, "include-raw", false, "Include the unprocessed Alertmanager-shape payload under status.raw (hidden by default; status.{target,links,...} are the promoted view of the same data)")
-	return cmd
-}
-
 func newOrganizationsCmd(loader OnCallConfigLoader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "organizations",

@@ -1,9 +1,9 @@
 package oncalltypes
 
-// Rich types render the AlertGroup/Alert payloads in the spec/status shape that
-// gcx exposes via `irm oncall alert-groups get|list|list-alerts` and
-// `irm oncall alerts get`. They differ from the API-shaped AlertGroup/Alert
-// types in this package (which mirror the OnCall internal API verbatim).
+// Rich types render the AlertGroup/Alert payloads in the spec/status shape
+// that gcx exposes via `irm oncall alert-groups get|list|list-alerts`. They
+// differ from the API-shaped AlertGroup/Alert types in this package (which
+// mirror the OnCall internal API verbatim).
 //
 // Empty fields are routinely expected because:
 //  - the AlertGroups list endpoint does not return last_alert.raw_request_data,
