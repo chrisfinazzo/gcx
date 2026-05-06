@@ -112,25 +112,46 @@ func TestColumns_HappyPath(t *testing.T) {
 		}`))
 	}))
 
-	cols, err := client.Columns(context.Background(), "abc", []string{"up"}, nil)
+	cr, err := client.Columns(context.Background(), "abc", []string{"up"}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, http.MethodPost, gotMethod)
 	assert.Equal(t, "/api/datasources/uid/abc/resources/abstractionSchema/columns", gotPath)
 	require.Equal(t, []any{"up"}, gotBody["tables"])
 
-	require.Len(t, cols["up"], 4)
-	assert.Equal(t, "instance", cols["up"][2].Name)
-	assert.Equal(t, []schemads.Operator{"=", "in"}, cols["up"][2].Operators)
+	require.Len(t, cr.Columns["up"], 4)
+	assert.Equal(t, "instance", cr.Columns["up"][2].Name)
+	assert.Equal(t, []schemads.Operator{"=", "in"}, cr.Columns["up"][2].Operators)
 }
 
 func TestColumns_EmptyTablesIsNoOp(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("server should not be called when tables is empty")
 	}))
-	cols, err := client.Columns(context.Background(), "abc", nil, nil)
+	cr, err := client.Columns(context.Background(), "abc", nil, nil)
 	require.NoError(t, err)
-	assert.Empty(t, cols)
+	assert.Empty(t, cr.Columns)
+}
+
+func TestColumns_TableMetadata(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"columns": {"prometheus_http_requests_total": [{"name":"timestamp","type":"datetime"}]},
+			"tableMetadata": {
+				"prometheus_http_requests_total": {
+					"description": "Counter of HTTP requests.",
+					"custom": {"prom.type": "counter"}
+				}
+			}
+		}`))
+	}))
+
+	cr, err := client.Columns(context.Background(), "abc", []string{"prometheus_http_requests_total"}, nil)
+	require.NoError(t, err)
+	md := cr.TableMetadata["prometheus_http_requests_total"]
+	assert.Equal(t, "Counter of HTTP requests.", md.Description)
+	assert.Equal(t, "counter", md.Custom["prom.type"])
 }
 
 func TestFullSchema_NilFullSchemaIsEmpty(t *testing.T) {

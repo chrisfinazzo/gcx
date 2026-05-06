@@ -79,12 +79,14 @@ func (c *Client) FullSchema(ctx context.Context, datasourceUID string) (*Schema,
 	return out.FullSchema, nil
 }
 
-// Columns returns the dynamic per-table columns for the given tables.
-// Unlike FullSchema, this includes columns that the datasource only knows
-// after binding to a specific table (e.g. Prometheus label dimensions).
-func (c *Client) Columns(ctx context.Context, datasourceUID string, tables []string, tableParameters map[string]string) (map[string][]Column, error) {
+// Columns returns the dynamic per-table columns for the given tables, along
+// with any table-level metadata the datasource opportunistically attaches
+// (Prometheus HELP/TYPE/UNIT lives here today). Unlike FullSchema, this
+// includes columns that the datasource only knows after binding to a
+// specific table (e.g. Prometheus label dimensions).
+func (c *Client) Columns(ctx context.Context, datasourceUID string, tables []string, tableParameters map[string]string) (*ColumnsResponse, error) {
 	if len(tables) == 0 {
-		return map[string][]Column{}, nil
+		return &ColumnsResponse{Columns: map[string][]Column{}}, nil
 	}
 	apiPath := c.buildPath(datasourceUID, columnsPath)
 
@@ -124,7 +126,7 @@ func (c *Client) Columns(ctx context.Context, datasourceUID string, tables []str
 	if out.Columns == nil {
 		out.Columns = map[string][]Column{}
 	}
-	return out.Columns, nil
+	return &out, nil
 }
 
 func (c *Client) buildPath(datasourceUID, requestType string) string {

@@ -72,13 +72,18 @@ respond; others return 404 or 501.`,
 			// dynamic columns for that table — fullSchema only returns
 			// static columns (e.g. for Prometheus, just timestamp/value;
 			// label dimensions like job/instance only show up here).
+			// The columns endpoint also carries any table-level metadata
+			// the producer populates lazily (e.g. Prom HELP/TYPE).
 			if opts.Table != "" {
-				cols, err := client.Columns(ctx, args[0], []string{opts.Table}, nil)
+				cr, err := client.Columns(ctx, args[0], []string{opts.Table}, nil)
 				if err != nil {
 					return fmt.Errorf("failed to fetch columns for %q: %w", opts.Table, err)
 				}
-				if dyn, ok := cols[opts.Table]; ok {
+				if dyn, ok := cr.Columns[opts.Table]; ok {
 					mergeDynamicColumns(schema, opts.Table, dyn)
+				}
+				if md, ok := cr.TableMetadata[opts.Table]; ok && !md.IsZero() {
+					mergeTableMetadata(schema, opts.Table, md)
 				}
 			}
 
@@ -100,6 +105,17 @@ func mergeDynamicColumns(s *schemads.Schema, name string, cols []schemads.Column
 	for i := range s.Tables {
 		if strings.EqualFold(s.Tables[i].Name, name) {
 			s.Tables[i].Columns = cols
+			return
+		}
+	}
+}
+
+// mergeTableMetadata sets the table-level metadata for the named table. No-op
+// when the table is not in the schema.
+func mergeTableMetadata(s *schemads.Schema, name string, md schemads.Metadata) {
+	for i := range s.Tables {
+		if strings.EqualFold(s.Tables[i].Name, name) {
+			s.Tables[i].Metadata = md
 			return
 		}
 	}
@@ -225,8 +241,32 @@ func (c *schemaTableCodec) Decode(io.Reader, any) error {
 	return errors.New("table codec does not support decoding")
 }
 
+func sortedKeys(m map[string]any) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func renderSingleTable(w io.Writer, t *schemads.Table) error {
-	fmt.Fprintf(w, "Table: %s\n\n", t.Name)
+	fmt.Fprintf(w, "Table: %s\n", t.Name)
+	if !t.Metadata.IsZero() {
+		if t.Metadata.Description != "" {
+			fmt.Fprintf(w, "Description: %s\n", t.Metadata.Description)
+		}
+		if t.Metadata.Unit != "" {
+			fmt.Fprintf(w, "Unit: %s\n", t.Metadata.Unit)
+		}
+		for _, k := range sortedKeys(t.Metadata.Custom) {
+			fmt.Fprintf(w, "%s: %v\n", k, t.Metadata.Custom[k])
+		}
+	}
+	fmt.Fprintln(w)
 
 	if len(t.Columns) > 0 {
 		fmt.Fprintln(w, "Columns:")
@@ -236,7 +276,11 @@ func renderSingleTable(w io.Writer, t *schemads.Table) error {
 			for i, o := range c.Operators {
 				ops[i] = string(o)
 			}
-			ct.Row(c.Name, c.Type, strings.Join(ops, " "), c.Description)
+			desc := c.Metadata.Description
+			if desc == "" {
+				desc = c.Description
+			}
+			ct.Row(c.Name, c.Type, strings.Join(ops, " "), desc)
 		}
 		if err := ct.Render(w); err != nil {
 			return err
