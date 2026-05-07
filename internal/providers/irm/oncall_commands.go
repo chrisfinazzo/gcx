@@ -837,12 +837,12 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 		fixedColsWidth int
 	)
 	if c.Wide {
-		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "INTEGRATION", "TARGET.CLUSTER", "TARGET.SERVICE", "ALERTS", "LINKS.SLO.NAME", "STARTED")
-		colWidths = []int{16, 0, 10, 14, 0, 0, 0, 0, 8, 0, 12}
+		t = style.NewTable("ID", "TITLE", "TEAM", "SEVERITY", "STATE", "INTEGRATION", "TARGET.CLUSTER", "TARGET.SERVICE", "ALERTS", "LINKS.SLO.NAME", "STARTED")
+		colWidths = []int{16, 0, 0, 10, 14, 0, 0, 0, 8, 0, 12}
 		titleColIdx = 1
 	} else {
-		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "STARTED")
-		colWidths = []int{16, 0, 10, 14, 0, 12}
+		t = style.NewTable("ID", "TITLE", "TEAM", "SEVERITY", "STATE", "STARTED")
+		colWidths = []int{16, 0, 0, 10, 14, 12}
 		titleColIdx = 1
 	}
 	t.ColumnWidths(colWidths)
@@ -857,7 +857,7 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 		state := orDash(env.Status.State)
 		teamName := ""
 		if env.Spec.Team != nil {
-			teamName = env.Spec.Team.Name
+			teamName = fmt.Sprintf("%s (%s)", env.Spec.Team.Name, env.Spec.Team.ID)
 		}
 		started := formatRelativeAge(env.Metadata.CreationTimestamp)
 		_ = titleColIdx // kept for future per-column ellipsis dispatch
@@ -874,9 +874,9 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 			t.Row(
 				id,
 				title,
+				orDash(teamName),
 				severity,
 				state,
-				orDash(teamName),
 				orDash(env.Spec.Integration.Name),
 				orDash(cluster),
 				orDash(service),
@@ -885,7 +885,7 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 				started,
 			)
 		} else {
-			t.Row(id, title, severity, state, orDash(teamName), started)
+			t.Row(id, title, orDash(teamName), severity, state, started)
 		}
 	}
 	return t.Render(w)

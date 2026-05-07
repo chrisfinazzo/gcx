@@ -220,6 +220,28 @@ Five bugs surfaced from real `--limit=3 -o table` / `-owide` output:
 
 Implementation note: lipgloss `ColumnWidths()` semantics — passed-in widths INCLUDE the cell padding, not just content. Worth codifying alongside the codec pattern doc; doc-editor will surface this in the design-rule pass.
 
+### 16. Round 16 — column-order tweak + `name (id)` for TEAM
+
+After live-testing rounds 12–15, the user manually iterated on the column order and TEAM rendering:
+
+- TEAM moved from position 5 (default) / 5 (wide) to position 3 in both — semantically pairs "what is this" (`TITLE`) with "whose is it" (`TEAM`) before showing severity / state / age.
+- TEAM cell now renders `name (id)` (e.g. `Alerting (T7BX6FGR3Y9IP)`) instead of just `name`. ID disambiguation matters when team names collide or when an agent needs the PK for a follow-up call.
+- Bug caught + fixed: the manual edit reordered the headers + colWidths in both branches and the wide-branch row args, but the **default-branch `t.Row(...)` call still passed args in the old order**. Result: severity rendered under the TEAM column, state under SEVERITY, etc. One-line fix to bring the default row args into header order.
+
+Updated final-shape column lock:
+
+```yaml
+# alert-groups list -o table
+columns: [ID, TITLE, TEAM, SEVERITY, STATE, STARTED]
+column_widths: [16, 0, 0, 10, 14, 12]
+
+# alert-groups list -o wide
+columns: [ID, TITLE, TEAM, SEVERITY, STATE, INTEGRATION, TARGET.CLUSTER, TARGET.SERVICE, ALERTS, LINKS.SLO.NAME, STARTED]
+column_widths: [16, 0, 0, 10, 14, 0, 0, 0, 8, 0, 12]
+```
+
+`list-alerts` column order unchanged.
+
 ## What landed
 
 ### Code

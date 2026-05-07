@@ -9,9 +9,12 @@ last_updated: 2026-05-07
 **Current finding**: D2 — `alert-groups` family (drifted from "rich shapes" to broader presentation/UX)
 **Current round**: 12 (acknowledge — PENDING REFACTOR per PR #597 reconcile), 13 (--open) shipped, 14 (--limit) shipped
 **Status**:
-- 12: `6a87f655` (vanguard) → `110adb57` (refactor — two-shape locked). Live-verified on ops: single ack idempotent, bulk filter (matched:31 succeeded:27 skipped:4 failed:0) sum invariant holds.
-- 15: `1a7ca0b2` — table render fixes (ID width 14→16 since lipgloss `Width()` includes padding, TITLE strip, ellipsis truncation, SEVERITY HTML fallback). `-o wide` not actually broken — narrow-terminal lipgloss compression. UX call open: silent compress vs hint.
-- Combined smoke (rounds 12/13/14/15) dispatched. Doc-edit pass deferred until smoke returns.
+- 12: `6a87f655` (vanguard) → `110adb57` (refactor — two-shape locked). Live-verified on ops.
+- 15: `1a7ca0b2` — table render fixes (ID width 14→16, TITLE strip, ellipsis truncation, SEVERITY HTML fallback). `-o wide` not actually broken — narrow-terminal lipgloss compression. UX call deferred.
+- Smoke 23/23 PASS, docs `62621e20` (rounds 12-15) + `b7a24aa3` (design rule `docs/design/output-shapes.md`).
+- 16: this commit — column-order tweak (TEAM to pos 3) + TEAM `name (id)` format; default-branch row-args bug fix from user's manual iteration.
+
+D2 effectively closed. Remaining /plan-spec material: D3 full URL-template backfill, D4-D8, plus deferred items in tracking doc.
 - 13: `30c10421` — `--open` on `alert-groups get`; smoke 7/9 pass (2 fails were stale snapshots of in-flight [12] code, unrelated).
 - 14: `6939baec` — `--limit 50` on `alert-groups list` with cursor-aware hint. perpage=min(limit,100). list-alerts already had `--limit`; data-miner caught the surprise.
 - Pre-existing test failures (4 token-cost) and vendoring lint issue surfaced during [14]; possibly from [12] or rebase. Pending triage.
