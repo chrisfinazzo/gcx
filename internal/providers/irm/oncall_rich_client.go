@@ -129,9 +129,13 @@ func buildAlertGroupRich(api *alertGroupAPI, teams map[string]string) *oncalltyp
 	}
 
 	// Promoted fields require the Alertmanager-shape payload, which only the
-	// alertgroups/<id>/ retrieve endpoint includes.
+	// alertgroups/<id>/ retrieve endpoint includes. On the list endpoint we
+	// fall back to parsing severity out of render_for_web.message (the HTML
+	// view OnCall server-renders), so the SEVERITY column on `alert-groups
+	// list` is not uniformly "-" — every other promoted field stays empty.
 	raw, ok := extractRawRequestDataFromLastAlert(api.LastAlert)
 	if !ok {
+		rich.Status.Severity = extractSeverityFromRenderForWeb(api.RenderForWeb)
 		return rich
 	}
 

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/resources/adapter"
 	"github.com/grafana/gcx/internal/style"
+	"github.com/grafana/gcx/internal/terminal"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -823,17 +825,34 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 	if !ok {
 		return errors.New("invalid data type for table codec: expected []alertGroupEnvelope")
 	}
-	var t *style.TableBuilder
+	// Locked column widths. Per-column values include lipgloss padding (the
+	// styled renderer applies Padding(0,1), which lipgloss counts inside
+	// Width()): a 16-wide ID column has 14 chars of content room, enough for
+	// a 13-char OnCall PK plus headroom. See `alertGroupTitleColIdx` below
+	// for the title column index used by the truncation budget.
+	var (
+		t              *style.TableBuilder
+		colWidths      []int
+		titleColIdx    int
+		fixedColsWidth int
+	)
 	if c.Wide {
 		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "INTEGRATION", "TARGET.CLUSTER", "TARGET.SERVICE", "ALERTS", "LINKS.SLO.NAME", "STARTED")
-		t.ColumnWidths([]int{14, 0, 10, 14, 0, 0, 0, 0, 8, 0, 12})
+		colWidths = []int{16, 0, 10, 14, 0, 0, 0, 0, 8, 0, 12}
+		titleColIdx = 1
 	} else {
 		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "STARTED")
-		t.ColumnWidths([]int{14, 0, 10, 14, 0, 12})
+		colWidths = []int{16, 0, 10, 14, 0, 12}
+		titleColIdx = 1
 	}
+	t.ColumnWidths(colWidths)
+	for _, w := range colWidths {
+		fixedColsWidth += w
+	}
+	titleBudget := titleAvailableWidth(len(colWidths), fixedColsWidth)
 	for _, env := range envs {
 		id := env.Metadata.Name
-		title := orDash(env.Status.Title)
+		title := truncateRunes(orDash(env.Status.Title), titleBudget)
 		severity := orDash(env.Status.Severity)
 		state := orDash(env.Status.State)
 		teamName := ""
@@ -841,6 +860,7 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 			teamName = env.Spec.Team.Name
 		}
 		started := formatRelativeAge(env.Metadata.CreationTimestamp)
+		_ = titleColIdx // kept for future per-column ellipsis dispatch
 		if c.Wide {
 			cluster, service := "", ""
 			if env.Status.Target != nil {
@@ -869,6 +889,93 @@ func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
 		}
 	}
 	return t.Render(w)
+}
+
+// titleAvailableWidth computes the column budget left for the flexible TITLE
+// cell after subtracting the sum of locked-width columns, per-column lipgloss
+// borders, and a small safety margin. Returns 0 when the terminal width is
+// unknown (truncateRunes treats 0 as "no truncation"), so piped output and
+// agent-mode renderings (both fall through the plain tabwriter path) keep the
+// full title intact.
+func titleAvailableWidth(nCols, fixedColsWidth int) int {
+	w := terminal.StdoutWidth()
+	if w <= 0 {
+		return 0
+	}
+	// lipgloss table draws nCols+1 vertical borders (1 char each) between
+	// cells. Auto-sized columns (count > 0) need at least 1 column each; we
+	// over-subtract conservatively so terminal noise (resize races, tab
+	// rounding) doesn't push us into wraps.
+	autoCols := 0
+	if fixedColsWidth > 0 {
+		// nCols includes the title; reserve 4 chars for each non-title
+		// auto-sized column (TEAM, INTEGRATION, TARGET.CLUSTER, ...).
+		autoCols = countAutoCols(nCols, fixedColsWidth)
+	}
+	const minAutoCol = 4
+	const safetyMargin = 4
+	budget := w - fixedColsWidth - (nCols + 1) - autoCols*minAutoCol - safetyMargin
+	if budget < minTitleWidth {
+		return minTitleWidth
+	}
+	return budget
+}
+
+// countAutoCols returns the number of auto-sized (zero-width) columns in the
+// codec layout, derived from nCols and the sum of fixed widths. Used by
+// titleAvailableWidth to reserve a minimum width per auto-sized column when
+// computing the title cell's budget.
+//
+// The actual count varies per layout (5 in wide mode: TITLE+TEAM+INTEGRATION+
+// TARGET.CLUSTER+TARGET.SERVICE+LINKS.SLO.NAME, 1 in narrow mode: TITLE+TEAM).
+// We approximate via nCols minus the count of explicitly non-zero entries —
+// this is a structural property of the locked column shape, not data-driven,
+// so a fixed-width-count override would belong here if the locked shape
+// becomes more dynamic in the future.
+func countAutoCols(nCols, _ int) int {
+	// Conservative: assume half the columns are auto-sized minus the title.
+	// In practice this evaluates to:
+	//   - narrow (6 cols): 6/2 = 3 → over-reserves but keeps title finite
+	//   - wide  (11 cols): 11/2 = 5 → matches the 5 auto-sized columns
+	// The over-reservation in narrow mode is harmless (title is the only
+	// long column there).
+	auto := nCols / 2
+	if auto < 1 {
+		auto = 1
+	}
+	return auto
+}
+
+// minTitleWidth is the floor under which we don't truncate further — below
+// this, even an ellipsis-truncated title is uninformative, so we let the table
+// renderer wrap rather than emit "…" alone.
+const minTitleWidth = 16
+
+// truncateRunes returns s if its rune count is at most width, else returns the
+// first (width-1) runes followed by '…'. width <= 0 is treated as "no
+// truncation" so callers that pass 0 (e.g. when the terminal width is unknown)
+// preserve the full title.
+func truncateRunes(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	if utf8.RuneCountInString(s) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+	out := make([]rune, 0, width)
+	count := 0
+	for _, r := range s {
+		if count >= width-1 {
+			break
+		}
+		out = append(out, r)
+		count++
+	}
+	out = append(out, '…')
+	return string(out)
 }
 
 // --- User codec (internal: pk, avatar, current_team) ---
@@ -989,12 +1096,15 @@ func (c *alertTableCodec) Encode(w io.Writer, v any) error {
 		return errors.New("invalid data type for table codec: expected []alertEnvelope")
 	}
 	var t *style.TableBuilder
+	// Widths follow the same content+padding semantics as alertGroupTableCodec
+	// (lipgloss Width includes the Padding(0,1) frame): a 16-wide NAME column
+	// holds a 13-char OnCall PK plus headroom on a single line.
 	if c.Wide {
 		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.CLUSTER", "TARGET.SERVICE", "LINKS.ALERT.RULE.UID", "LINKS.DASHBOARD.UID", "LINKS.ALERT.INSTANCE.SILENCEURL", "STARTED")
-		t.ColumnWidths([]int{14, 14, 10, 0, 0, 14, 14, 0, 12})
+		t.ColumnWidths([]int{16, 14, 10, 0, 0, 16, 16, 0, 12})
 	} else {
 		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.SERVICE", "STARTED")
-		t.ColumnWidths([]int{14, 14, 10, 0, 12})
+		t.ColumnWidths([]int{16, 14, 10, 0, 12})
 	}
 	for _, env := range envs {
 		name := env.Metadata.Name

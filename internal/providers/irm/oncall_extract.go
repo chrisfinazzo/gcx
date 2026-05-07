@@ -157,6 +157,56 @@ type amAlertRaw struct {
 // dashboardUIDPattern parses the {uid} segment of a Grafana /d/{uid}/{slug}? URL.
 var dashboardUIDPattern = regexp.MustCompile(`/d/([A-Za-z0-9_-]+)`)
 
+// titleTargetSuffixPattern matches a trailing "(cluster, namespace[, ...])"
+// suffix on render_for_web titles. OnCall concatenates target labels into the
+// title server-side ("KubePodNotReady (grafana-apps)" /
+// "CloudSQLSlowQueries (prod-eu-west-2, machine-learning)"). The list-table
+// codec already renders cluster/service/namespace in their own columns; we
+// strip the parenthetical here so the TITLE column shows just the alert name.
+//
+// Conservative: only strips when the parenthetical contains 1-3 comma-separated
+// identifiers (alphanumerics, dashes, underscores, dots) and nothing else, so
+// alert names that legitimately contain parens (e.g. "FailedDeploys (canary)"
+// where "canary" is the alert qualifier and not a cluster) are left alone.
+var titleTargetSuffixPattern = regexp.MustCompile(`\s*\(([A-Za-z0-9_.\-]+(?:,\s*[A-Za-z0-9_.\-]+){0,2})\)\s*$`)
+
+// stripTitleTargetSuffix removes the trailing "(target, ...)" parenthetical
+// that OnCall server-side prepends to render_for_web titles. See pattern docs.
+func stripTitleTargetSuffix(title string) string {
+	return titleTargetSuffixPattern.ReplaceAllString(title, "")
+}
+
+// renderForWebSeverityPattern picks the value of a `severity:` line out of the
+// rendered HTML message OnCall returns under render_for_web.message. The list
+// endpoint omits last_alert.raw_request_data, so the structured severity
+// extraction in buildAlertGroupRich is empty for list rows. The HTML message
+// embeds the same labels in `<li>severity: <value></li>` form, which we can
+// read as a fallback so the SEVERITY column on `alert-groups list` is not
+// uniformly "-".
+var renderForWebSeverityPattern = regexp.MustCompile(`<li>\s*severity:\s*([^<\s]+)`)
+
+// extractSeverityFromRenderForWeb pulls the severity value out of the
+// render_for_web HTML message body when present. Returns "" on no match.
+func extractSeverityFromRenderForWeb(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var rfw struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &rfw); err != nil {
+		return ""
+	}
+	if rfw.Message == "" {
+		return ""
+	}
+	m := renderForWebSeverityPattern.FindStringSubmatch(rfw.Message)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
 // parseDashboardUIDFromURL extracts the dashboard UID from a /d/<uid>/<slug>... URL.
 // Returns "" on no match or an empty input.
 func parseDashboardUIDFromURL(rawURL string) string {
@@ -317,7 +367,10 @@ func extractTarget(labels map[string]string) *oncalltypes.AlertTarget {
 }
 
 // extractTitleFromRenderForWeb pulls the "title" field out of the render_for_web
-// blob the OnCall API attaches to alert groups.
+// blob the OnCall API attaches to alert groups, stripping the trailing
+// "(cluster, namespace)" target suffix OnCall concatenates server-side. The
+// alert name (e.g. "KubePodNotReady") is what users want in the TITLE column;
+// targets render in their own columns.
 func extractTitleFromRenderForWeb(data json.RawMessage) string {
 	if len(data) == 0 {
 		return ""
@@ -328,7 +381,7 @@ func extractTitleFromRenderForWeb(data json.RawMessage) string {
 	if err := json.Unmarshal(data, &rfw); err != nil {
 		return ""
 	}
-	return rfw.Title
+	return stripTitleTargetSuffix(rfw.Title)
 }
 
 // extractIntegrationRef parses the alert_receive_channel object from an alert
