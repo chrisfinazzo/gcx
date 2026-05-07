@@ -18,7 +18,10 @@ type DatasourceProvider interface {
 	// ShortDesc returns a one-line description of the datasource provider.
 	ShortDesc() string
 
-	// QueryCmd returns the query subcommand. Every datasource must support querying.
+	// QueryCmd returns the query subcommand for datasources with a query verb
+	// (PromQL, LogQL, TraceQL, etc.). Returns nil for datasources whose surface
+	// is a fixed set of resource subcommands (e.g., Synthetic Monitoring exposes
+	// probes/checks via ExtraCommands and has no separate query language).
 	QueryCmd(loader *providers.ConfigLoader) *cobra.Command
 
 	// ExtraCommands returns additional subcommands (labels, metrics, etc.).

@@ -33,7 +33,9 @@ func Command() *cobra.Command {
 			sub.Aliases = a.Aliases()
 		}
 		loader.BindFlags(sub.PersistentFlags())
-		sub.AddCommand(dp.QueryCmd(loader))
+		if q := dp.QueryCmd(loader); q != nil {
+			sub.AddCommand(q)
+		}
 		for _, extra := range dp.ExtraCommands(loader) {
 			sub.AddCommand(extra)
 		}

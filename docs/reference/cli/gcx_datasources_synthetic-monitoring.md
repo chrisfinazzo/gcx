@@ -25,5 +25,4 @@ Query Synthetic Monitoring datasources
 * [gcx datasources](gcx_datasources.md)	 - Manage and query Grafana datasources
 * [gcx datasources synthetic-monitoring checks](gcx_datasources_synthetic-monitoring_checks.md)	 - List Synthetic Monitoring checks
 * [gcx datasources synthetic-monitoring probes](gcx_datasources_synthetic-monitoring_probes.md)	 - List Synthetic Monitoring probes
-* [gcx datasources synthetic-monitoring query](gcx_datasources_synthetic-monitoring_query.md)	 - Query a Synthetic Monitoring resource through the datasource
 
