@@ -260,8 +260,15 @@ func (opts *Options) builtinCodecs() map[string]format.Codec {
 }
 
 func (opts *Options) allowedCodecs() []string {
-	allowedCodecs := slices.Collect(maps.Keys(opts.builtinCodecs()))
+	builtins := opts.builtinCodecs()
+	allowedCodecs := slices.Collect(maps.Keys(builtins))
 	for name := range opts.customCodecs {
+		// Dedupe: if a custom codec shadows a builtin (e.g. an ordered-YAML
+		// codec replacing the default yaml codec), don't list it twice in the
+		// help text. The lookup in codecFor() still prefers the custom codec.
+		if _, ok := builtins[name]; ok {
+			continue
+		}
 		allowedCodecs = append(allowedCodecs, name)
 	}
 

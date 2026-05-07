@@ -66,6 +66,10 @@ type alertGroupListOpts struct {
 
 func (o *alertGroupListOpts) setup(flags *pflag.FlagSet) {
 	o.listOpts.setup(flags, "alert-groups")
+	// Override the default JSON→sigsyaml YAML codec with the go-yaml encoder so
+	// the typed envelope's deliberate field order under status (title, summary,
+	// severity, state, ...) is preserved instead of alphabetized.
+	o.IO.RegisterCustomCodec("yaml", &orderedYAMLCodec{})
 	flags.StringVar(&o.MaxAge, "max-age", "", "Exclude groups older than this duration (e.g. 1h, 24h, 7d)")
 	flags.StringSliceVar(&o.States, "state", nil, "Filter by state (firing|acknowledged|resolved|silenced; repeatable, comma-separated). Default: firing,acknowledged,silenced")
 	flags.StringSliceVar(&o.Teams, "team", nil, "Filter by team PK (repeatable, comma-separated)")
@@ -238,20 +242,20 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 
 			teams, _ := oc.resolveTeams(cmd.Context()) // best-effort
 
-			objs := make([]unstructured.Unstructured, 0, len(rawItems))
+			envs := make([]alertGroupEnvelope, 0, len(rawItems))
 			for _, item := range rawItems {
 				api, rich, err := listAlertGroupRichFromBytes(item, teams)
 				if err != nil {
 					return err
 				}
-				obj, err := alertGroupRichToUnstructured(api, rich, namespace)
+				env, err := alertGroupRichToEnvelope(api, rich, namespace)
 				if err != nil {
 					return err
 				}
-				objs = append(objs, obj)
+				envs = append(envs, env)
 			}
 
-			return opts.IO.Encode(cmd.OutOrStdout(), objs)
+			return opts.IO.Encode(cmd.OutOrStdout(), envs)
 		},
 	}
 	opts.setup(cmd.Flags())
@@ -308,11 +312,31 @@ func listAlertGroupsLegacy(cmd *cobra.Command, opts *alertGroupListOpts, filters
 	if err != nil {
 		return err
 	}
-	objs, err := itemsToUnstructured(items, "AlertGroup", "pk", namespace)
-	if err != nil {
-		return err
+	// SA-token mode doesn't get the rich shape (no internal API access). The
+	// envelope type is the same — most status fields stay empty (omitempty);
+	// only AlertsCount/Status (decoded) are populated from the public payload.
+	envs := make([]alertGroupEnvelope, 0, len(items))
+	for _, item := range items {
+		state := ""
+		if n, ok := item.Status.(float64); ok {
+			s := int(n)
+			state = decodeAlertGroupState(&s)
+		}
+		envs = append(envs, alertGroupEnvelope{
+			APIVersion: APIVersion,
+			Kind:       "AlertGroup",
+			Metadata: k8sMetadata{
+				Name:              item.PK,
+				Namespace:         namespace,
+				CreationTimestamp: item.StartedAt,
+			},
+			Status: oncalltypes.AlertGroupStatus{
+				State:       state,
+				AlertsCount: item.AlertsCount,
+			},
+		})
 	}
-	return opts.IO.Encode(cmd.OutOrStdout(), objs)
+	return opts.IO.Encode(cmd.OutOrStdout(), envs)
 }
 
 // listAlertGroupsRaw issues the paginated GET against alertgroups/?... and
@@ -411,6 +435,46 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
+// formatRelativeAge renders a timestamp as a compact "Nh ago" / "Nd ago" string
+// for the STARTED column on alert-groups list and list-alerts. Empty/zero/
+// unparseable input yields "-" so the column never renders empty cells.
+func formatRelativeAge(ts string) string {
+	if ts == "" {
+		return "-"
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		// OnCall sometimes serializes without a trailing Z — try a couple of
+		// fallback layouts before giving up.
+		for _, layout := range []string{"2006-01-02T15:04:05.999999Z", "2006-01-02T15:04:05Z", "2006-01-02T15:04:05"} {
+			if tt, e := time.Parse(layout, ts); e == nil {
+				t = tt
+				err = nil
+				break
+			}
+		}
+		if err != nil {
+			return "-"
+		}
+	}
+	d := time.Since(t)
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return fmt.Sprintf("%dw ago", int(d.Hours()/(24*7)))
+	}
+}
+
 // alertGroupGetRichOpts mirrors getOpts but uses Yaml as default.
 type alertGroupGetRichOpts struct {
 	IO         cmdio.Options
@@ -501,11 +565,20 @@ func newAlertGroupListAlertsCommand(loader OnCallConfigLoader) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				objs, err := itemsToUnstructured(items, "Alert", "id", namespace)
-				if err != nil {
-					return err
+				envs := make([]alertEnvelope, 0, len(items))
+				for _, item := range items {
+					envs = append(envs, alertEnvelope{
+						APIVersion: APIVersion,
+						Kind:       "Alert",
+						Metadata: k8sMetadata{
+							Name:              item.ID,
+							Namespace:         namespace,
+							CreationTimestamp: item.CreatedAt,
+						},
+						Spec: oncalltypes.AlertSpec{AlertGroupID: groupID},
+					})
 				}
-				return opts.IO.Encode(cmd.OutOrStdout(), objs)
+				return opts.IO.Encode(cmd.OutOrStdout(), envs)
 			}
 
 			limit := opts.Limit
@@ -582,36 +655,6 @@ func fetchAlertsRichConcurrent(ctx context.Context, c *OnCallClient, ids []strin
 		return nil, err
 	}
 	return results, nil
-}
-
-// slimAlertObject builds a minimal Alert envelope with no status payload —
-// used by --slim and SA-token fallback paths.
-func slimAlertObject(id, groupID, state, createdAt, namespace string) unstructured.Unstructured {
-	metadata := map[string]any{
-		"name":      id,
-		"namespace": namespace,
-	}
-	if createdAt != "" {
-		metadata["creationTimestamp"] = createdAt
-	}
-	spec := map[string]any{}
-	if groupID != "" {
-		spec["alertGroupID"] = groupID
-	}
-	status := map[string]any{}
-	if state != "" {
-		status["state"] = state
-	}
-	obj := map[string]any{
-		"apiVersion": APIVersion,
-		"kind":       "Alert",
-		"metadata":   metadata,
-		"spec":       spec,
-	}
-	if len(status) > 0 {
-		obj["status"] = status
-	}
-	return unstructured.Unstructured{Object: obj}
 }
 
 type alertGroupActionOpts struct {
@@ -939,49 +982,6 @@ func itemsToUnstructured[T any](items []T, kind, idField, namespace string) ([]u
 	return objs, nil
 }
 
-// alertGroupRichToUnstructured builds the K8s envelope for an AlertGroup,
-// lifting top-level "spec" and "status" out of AlertGroupRich and pulling
-// metadata fields (name, creationTimestamp, namespace, labels) out of the api blob.
-func alertGroupRichToUnstructured(api *alertGroupAPI, rich *oncalltypes.AlertGroupRich, namespace string) (unstructured.Unstructured, error) {
-	if api == nil || rich == nil {
-		return unstructured.Unstructured{}, errors.New("internal: nil api or rich payload")
-	}
-
-	bytes, err := json.Marshal(rich)
-	if err != nil {
-		return unstructured.Unstructured{}, fmt.Errorf("marshal alert group rich: %w", err)
-	}
-	var richMap map[string]any
-	if err := json.Unmarshal(bytes, &richMap); err != nil {
-		return unstructured.Unstructured{}, fmt.Errorf("unmarshal alert group rich: %w", err)
-	}
-
-	metadata := map[string]any{
-		"name":      api.PK,
-		"namespace": namespace,
-	}
-	if api.StartedAt != "" {
-		metadata["creationTimestamp"] = api.StartedAt
-	}
-	// OnCall labels — pass through verbatim if present and an array.
-	if labels := decodeOnCallLabels(api); labels != nil {
-		metadata["labels"] = labels
-	}
-
-	obj := map[string]any{
-		"apiVersion": APIVersion,
-		"kind":       "AlertGroup",
-		"metadata":   metadata,
-	}
-	if v, ok := richMap["spec"]; ok {
-		obj["spec"] = v
-	}
-	if v, ok := richMap["status"]; ok {
-		obj["status"] = v
-	}
-	return unstructured.Unstructured{Object: obj}, nil
-}
-
 // decodeOnCallLabels extracts the OnCall app's user-set labels[] off the alert
 // group payload and returns them as a {key: value} map for inclusion under
 // metadata.labels. Returns nil when no usable labels are present.
@@ -1097,45 +1097,6 @@ func alertRichToEnvelope(api *alertAPI, rich *oncalltypes.AlertRich, groupID, na
 		Spec:   rich.Spec,
 		Status: rich.Status,
 	}, nil
-}
-
-// alertRichToUnstructured builds the K8s envelope for a single Alert.
-func alertRichToUnstructured(api *alertAPI, rich *oncalltypes.AlertRich, groupID, namespace string) (unstructured.Unstructured, error) {
-	if api == nil || rich == nil {
-		return unstructured.Unstructured{}, errors.New("internal: nil api or rich payload")
-	}
-	if rich.Spec.AlertGroupID == "" && groupID != "" {
-		rich.Spec.AlertGroupID = groupID
-	}
-
-	bytes, err := json.Marshal(rich)
-	if err != nil {
-		return unstructured.Unstructured{}, fmt.Errorf("marshal alert rich: %w", err)
-	}
-	var richMap map[string]any
-	if err := json.Unmarshal(bytes, &richMap); err != nil {
-		return unstructured.Unstructured{}, fmt.Errorf("unmarshal alert rich: %w", err)
-	}
-
-	metadata := map[string]any{
-		"name":      api.ID,
-		"namespace": namespace,
-	}
-	if api.CreatedAt != "" {
-		metadata["creationTimestamp"] = api.CreatedAt
-	}
-	obj := map[string]any{
-		"apiVersion": APIVersion,
-		"kind":       "Alert",
-		"metadata":   metadata,
-	}
-	if v, ok := richMap["spec"]; ok {
-		obj["spec"] = v
-	}
-	if v, ok := richMap["status"]; ok {
-		obj["status"] = v
-	}
-	return unstructured.Unstructured{Object: obj}, nil
 }
 
 type finalShiftTableCodec struct{ noDecodeCodec }

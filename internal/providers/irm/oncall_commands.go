@@ -62,6 +62,7 @@ func (o *listOpts) setup(flags *pflag.FlagSet, resource string) {
 		o.IO.RegisterCustomCodec("table", &slackChannelTableCodec{})
 	case "alerts":
 		o.IO.RegisterCustomCodec("table", &alertTableCodec{})
+		o.IO.RegisterCustomCodec("wide", &alertTableCodec{Wide: true})
 	case "organizations":
 		o.IO.RegisterCustomCodec("table", &organizationTableCodec{})
 	case "resolution-notes":
@@ -790,7 +791,19 @@ func (c *webhookTableCodec) Encode(w io.Writer, v any) error {
 	return t.Render(w)
 }
 
-// --- AlertGroup codec (rich: spec.integration.name, status.state, status.alertsCount, status.title) ---
+// --- AlertGroup codec (typed: accepts []alertGroupEnvelope) ---
+//
+// The list path emits typed envelopes (not unstructured.Unstructured) so JSON
+// and YAML output preserve the deliberate field order under status (title,
+// summary, severity, state, runbookURL, target, timestamps, links, alertsCount,
+// raw) defined on oncalltypes.AlertGroupStatus. The table codec below mirrors
+// the locked SRE-persona column shape for `irm oncall alert-groups list`.
+//
+// Layout follows the trace tree precedent (PR #610): predictable-width columns
+// (ID, SEVERITY, STATE, STARTED, ALERTS, LINKS.*.UID) get fixed widths via
+// style.TableBuilder.ColumnWidths so lipgloss doesn't compress them when the
+// terminal is narrow; flexible columns (TITLE, TEAM, INTEGRATION, TARGET.*,
+// LINKS.SLO.NAME, LINKS.ALERT.INSTANCE.SILENCEURL) absorb the remaining width.
 
 type alertGroupTableCodec struct {
 	noDecodeCodec
@@ -805,79 +818,54 @@ func (c *alertGroupTableCodec) Format() format.Format {
 	return "table"
 }
 
-// nestedStr walks a path through map[string]any nodes and returns the leaf
-// value as a string. Returns "" on any miss or non-string leaf.
-func nestedStr(obj unstructured.Unstructured, path ...string) string {
-	cur := any(obj.Object)
-	for _, k := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return ""
-		}
-		cur, ok = m[k]
-		if !ok {
-			return ""
-		}
-	}
-	if s, ok := cur.(string); ok {
-		return s
-	}
-	return ""
-}
-
-// nestedInt walks a path and returns the leaf as an int (handles float64/int).
-func nestedInt(obj unstructured.Unstructured, path ...string) int {
-	cur := any(obj.Object)
-	for _, k := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return 0
-		}
-		cur, ok = m[k]
-		if !ok {
-			return 0
-		}
-	}
-	switch n := cur.(type) {
-	case float64:
-		return int(n)
-	case int:
-		return n
-	}
-	return 0
-}
-
 func (c *alertGroupTableCodec) Encode(w io.Writer, v any) error {
-	items, err := toUnstructuredSlice(v)
-	if err != nil {
-		return err
+	envs, ok := v.([]alertGroupEnvelope)
+	if !ok {
+		return errors.New("invalid data type for table codec: expected []alertGroupEnvelope")
 	}
 	var t *style.TableBuilder
 	if c.Wide {
-		t = style.NewTable("ID", "STATE", "ALERTS", "STARTED", "INTEGRATION", "TEAM", "TITLE")
+		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "INTEGRATION", "TARGET.CLUSTER", "TARGET.SERVICE", "ALERTS", "LINKS.SLO.NAME", "STARTED")
+		t.ColumnWidths([]int{14, 0, 10, 14, 0, 0, 0, 0, 8, 0, 12})
 	} else {
-		t = style.NewTable("ID", "STATE", "ALERTS", "STARTED", "TITLE")
+		t = style.NewTable("ID", "TITLE", "SEVERITY", "STATE", "TEAM", "STARTED")
+		t.ColumnWidths([]int{14, 0, 10, 14, 0, 12})
 	}
-	for _, obj := range items {
-		id := obj.GetName()
-		started := nestedStr(obj, "status", "timestamps", "started")
-		if len(started) > 16 {
-			started = started[:16]
+	for _, env := range envs {
+		id := env.Metadata.Name
+		title := orDash(env.Status.Title)
+		severity := orDash(env.Status.Severity)
+		state := orDash(env.Status.State)
+		teamName := ""
+		if env.Spec.Team != nil {
+			teamName = env.Spec.Team.Name
 		}
-		started = orDash(started)
-		alerts := nestedInt(obj, "status", "alertsCount")
-		state := nestedStr(obj, "status", "state")
-		title := nestedStr(obj, "status", "title")
-		if !c.Wide {
-			title = truncate(title, 50)
-		}
+		started := formatRelativeAge(env.Metadata.CreationTimestamp)
 		if c.Wide {
-			t.Row(id, orDash(state), strconv.Itoa(alerts), started,
-				orDash(nestedStr(obj, "spec", "integration", "name")),
-				orDash(nestedStr(obj, "spec", "team", "name")),
-				orDash(title))
+			cluster, service := "", ""
+			if env.Status.Target != nil {
+				cluster = env.Status.Target.Cluster
+				service = env.Status.Target.Service
+			}
+			sloName := ""
+			if env.Status.Links != nil && env.Status.Links.SLO != nil {
+				sloName = env.Status.Links.SLO.Name
+			}
+			t.Row(
+				id,
+				title,
+				severity,
+				state,
+				orDash(teamName),
+				orDash(env.Spec.Integration.Name),
+				orDash(cluster),
+				orDash(service),
+				strconv.Itoa(env.Status.AlertsCount),
+				orDash(sloName),
+				started,
+			)
 		} else {
-			t.Row(id, orDash(state), strconv.Itoa(alerts), started, orDash(title))
+			t.Row(id, title, severity, state, orDash(teamName), started)
 		}
 	}
 	return t.Render(w)
@@ -975,34 +963,69 @@ func (c *slackChannelTableCodec) Encode(w io.Writer, v any) error {
 	return t.Render(w)
 }
 
-// --- Alert codec ---
+// --- Alert codec (typed: accepts []alertEnvelope) ---
+//
+// Mirrors the alert-group codec but for the per-alert dimensionality emitted
+// by `irm oncall alert-groups list-alerts <id>`. Locked column set captures
+// the per-alert state, severity, target service, and (in wide mode) the
+// rule/dashboard/silenceURL pivot identifiers.
 
-type alertTableCodec struct{ noDecodeCodec }
+type alertTableCodec struct {
+	noDecodeCodec
 
-func (c *alertTableCodec) Format() format.Format { return "table" }
+	Wide bool
+}
+
+func (c *alertTableCodec) Format() format.Format {
+	if c.Wide {
+		return "wide"
+	}
+	return "table"
+}
 
 func (c *alertTableCodec) Encode(w io.Writer, v any) error {
-	items, err := toUnstructuredSlice(v)
-	if err != nil {
-		return err
+	envs, ok := v.([]alertEnvelope)
+	if !ok {
+		return errors.New("invalid data type for table codec: expected []alertEnvelope")
 	}
-	t := style.NewTable("ID", "CREATED", "STATE", "RULE", "INSTANCE")
-	for _, obj := range items {
-		created := ""
-		if md, ok := obj.Object["metadata"].(map[string]any); ok {
-			if s, ok := md["creationTimestamp"].(string); ok {
-				created = s
+	var t *style.TableBuilder
+	if c.Wide {
+		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.CLUSTER", "TARGET.SERVICE", "LINKS.ALERT.RULE.UID", "LINKS.DASHBOARD.UID", "LINKS.ALERT.INSTANCE.SILENCEURL", "STARTED")
+		t.ColumnWidths([]int{14, 14, 10, 0, 0, 14, 14, 0, 12})
+	} else {
+		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.SERVICE", "STARTED")
+		t.ColumnWidths([]int{14, 14, 10, 0, 12})
+	}
+	for _, env := range envs {
+		name := env.Metadata.Name
+		state := orDash(env.Status.State)
+		severity := orDash(env.Status.Severity)
+		started := formatRelativeAge(env.Metadata.CreationTimestamp)
+		cluster, service := "", ""
+		if env.Status.Target != nil {
+			cluster = env.Status.Target.Cluster
+			service = env.Status.Target.Service
+		}
+		if c.Wide {
+			ruleUID, dashUID, silenceURL := "", "", ""
+			if env.Status.Links != nil {
+				if env.Status.Links.Alert != nil {
+					if env.Status.Links.Alert.Rule != nil {
+						ruleUID = env.Status.Links.Alert.Rule.UID
+					}
+					if env.Status.Links.Alert.Instance != nil {
+						silenceURL = env.Status.Links.Alert.Instance.SilenceURL
+					}
+				}
+				if env.Status.Links.Dashboard != nil {
+					dashUID = env.Status.Links.Dashboard.UID
+				}
 			}
+			t.Row(name, state, severity, orDash(cluster), orDash(service),
+				orDash(ruleUID), orDash(dashUID), orDash(silenceURL), started)
+		} else {
+			t.Row(name, state, severity, orDash(service), started)
 		}
-		if len(created) > 16 {
-			created = created[:16]
-		}
-		t.Row(obj.GetName(),
-			orDash(created),
-			orDash(nestedStr(obj, "status", "state")),
-			orDash(nestedStr(obj, "status", "rule", "uid")),
-			orDash(nestedStr(obj, "status", "instance", "id")),
-		)
 	}
 	return t.Render(w)
 }
