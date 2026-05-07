@@ -13,6 +13,8 @@ import (
 	"time"
 
 	goyaml "github.com/goccy/go-yaml"
+	"github.com/grafana/gcx/internal/agent"
+	"github.com/grafana/gcx/internal/deeplink"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers/irm/oncalltypes"
@@ -479,6 +481,7 @@ func formatRelativeAge(ts string) string {
 type alertGroupGetRichOpts struct {
 	IO         cmdio.Options
 	IncludeRaw bool
+	Open       bool
 }
 
 func (o *alertGroupGetRichOpts) setup(flags *pflag.FlagSet) {
@@ -486,6 +489,16 @@ func (o *alertGroupGetRichOpts) setup(flags *pflag.FlagSet) {
 	o.IO.DefaultFormat("yaml")
 	o.IO.BindFlags(flags)
 	flags.BoolVar(&o.IncludeRaw, "include-raw", false, "Include the unprocessed Alertmanager-shape payload under status.raw (hidden by default; the curated status.{target,links,...} blocks are the promoted view of the same data)")
+	flags.BoolVar(&o.Open, "open", false, "Open the alert group in your browser after retrieval succeeds.")
+}
+
+// alertGroupOpenNote is the JSONL event emitted on stderr in agent mode when
+// --open is passed: a "note" with the resolved permalink (browser interaction
+// is not attempted in agent mode), or a "warning" when the permalink is empty.
+type alertGroupOpenNote struct {
+	Class   string `json:"class"`
+	Summary string `json:"summary"`
+	URL     string `json:"url,omitempty"`
 }
 
 func newAlertGroupGetRichCommand(loader OnCallConfigLoader) *cobra.Command {
@@ -519,11 +532,52 @@ func newAlertGroupGetRichCommand(loader OnCallConfigLoader) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return opts.IO.Encode(cmd.OutOrStdout(), env)
+			if err := opts.IO.Encode(cmd.OutOrStdout(), env); err != nil {
+				return err
+			}
+
+			if opts.Open {
+				return handleAlertGroupOpen(cmd.ErrOrStderr(), env.Spec.Permalinks.Web)
+			}
+			return nil
 		},
 	}
 	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// handleAlertGroupOpen implements the --open behavior for `alert-groups get`:
+//   - In agent mode, never attempt to launch a browser; emit a JSONL note (or
+//     warning when the permalink is empty) on stderr and return nil.
+//   - In TTY mode, open the permalink in the default browser when present;
+//     surface a warning when it is missing. Per the locked shape, an empty
+//     permalink does not fail the command.
+func handleAlertGroupOpen(stderr io.Writer, permalink string) error {
+	if agent.IsAgentMode() {
+		ev := alertGroupOpenNote{
+			Class:   "note",
+			Summary: "--open is ignored in agent mode",
+			URL:     permalink,
+		}
+		if permalink == "" {
+			ev = alertGroupOpenNote{
+				Class:   "warning",
+				Summary: "permalink unavailable",
+			}
+		}
+		b, err := json.Marshal(ev)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(stderr, string(b))
+		return nil
+	}
+	if permalink == "" {
+		cmdio.Warning(stderr, "permalink unavailable")
+		return nil
+	}
+	cmdio.Info(stderr, "Opening %s", permalink)
+	return deeplink.Open(permalink)
 }
 
 type alertGroupListAlertsOpts struct {
