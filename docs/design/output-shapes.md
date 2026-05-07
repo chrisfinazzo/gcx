@@ -190,6 +190,30 @@ Bulk-by-filter operations may emit one progress event per item between command s
 {"event":"acknowledged","target":{"alertGroupId":"I..."}}
 ```
 
+### 6.4 Hint shape variants
+
+The default `hint:` shape is `<summary>: <command>` — a one-line summary followed by the suggested command. Two permitted variants:
+
+**Inline-prose hint** — when the suggestion needs prose alternatives (e.g. *"pass X or Y"*). The TTY rendering is a single sentence; the agent JSONL keeps `summary` as the prose and embeds the most actionable single command in the `command` field. Example:
+
+```
+TTY:    hint: listing alert groups with filter default (excludes resolved + child groups); pass --all to include resolved + child groups, or --help for more filters
+agent:  {"class":"hint","summary":"listing alert groups with filter default (excludes resolved + child groups); pass --all to include resolved + child groups, or --help for more filters","command":"gcx irm oncall alert-groups list --all"}
+```
+
+**Placeholder vs concrete UID** — choose based on whether the suggestion has a single canonical value:
+
+- **`<id>` placeholder** when the hint is template-shaped (the agent should know to substitute their own ID). Used for nav hints emitted from list outputs where there are N rows:
+  ```
+  hint: drill into a group: gcx irm oncall alert-groups get <id>
+  ```
+- **Concrete UID** when there's exactly one canonical value (e.g. all alerts in a group share the same parent rule). Used for cross-provider pivot hints derived from a list result:
+  ```
+  hint: inspect rule: gcx alert rules get cfh3yivaya4n5a
+  ```
+
+Both forms are valid. Default to placeholders for nav-shaped hints; default to concrete UIDs when there's a single uniquely-correct value.
+
 ## 7. Implementation notes
 
 ### 7.1 Custom table codecs

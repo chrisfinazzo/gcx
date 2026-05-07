@@ -12,9 +12,10 @@ last_updated: 2026-05-07
 - 12: `6a87f655` (vanguard) → `110adb57` (refactor — two-shape locked). Live-verified on ops.
 - 15: `1a7ca0b2` — table render fixes (ID width 14→16, TITLE strip, ellipsis truncation, SEVERITY HTML fallback). `-o wide` not actually broken — narrow-terminal lipgloss compression. UX call deferred.
 - Smoke 23/23 PASS, docs `62621e20` (rounds 12-15) + `b7a24aa3` (design rule `docs/design/output-shapes.md`).
-- 16: this commit — column-order tweak (TEAM to pos 3) + TEAM `name (id)` format; default-branch row-args bug fix from user's manual iteration.
+- 16: `8eebce94` — column-order tweak (TEAM to pos 3) + TEAM `name (id)` format; default-branch row-args bug fix.
+- 17: `77c646ea` — list post-result hints (filter summary + drill-in nav), list-alerts column rework (drop redundant SEVERITY/TARGET/STARTED, emphasize RULE/DASHBOARD with URL preference), conditional link hints (`gcx alert rules get`, `gcx alert instances list --rule`). Live-verified on ops; design-rule doc gets hint pattern variants.
 
-D2 effectively closed. Remaining /plan-spec material: D3 full URL-template backfill, D4-D8, plus deferred items in tracking doc.
+D2 closed. Remaining /plan-spec material: D3 full URL-template backfill, D4-D8, plus deferred items in tracking doc (narrow-terminal `-o wide` UX, `grafana-oncall-app` URL migration, 4 spike token-cost test failures, lint vendoring drift).
 - 13: `30c10421` — `--open` on `alert-groups get`; smoke 7/9 pass (2 fails were stale snapshots of in-flight [12] code, unrelated).
 - 14: `6939baec` — `--limit 50` on `alert-groups list` with cursor-aware hint. perpage=min(limit,100). list-alerts already had `--limit`; data-miner caught the surprise.
 - Pre-existing test failures (4 token-cost) and vendoring lint issue surfaced during [14]; possibly from [12] or rebase. Pending triage.

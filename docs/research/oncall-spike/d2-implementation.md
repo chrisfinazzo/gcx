@@ -242,6 +242,56 @@ column_widths: [16, 0, 0, 10, 14, 0, 0, 0, 8, 0, 12]
 
 `list-alerts` column order unchanged.
 
+### 17. Round 17 — post-result hints + link-focused list-alerts table
+
+Final polish before closeout. Three changes:
+
+**a. `alert-groups list` post-result hints** — two emissions on stderr (TTY plain, agent JSONL):
+
+- *Filter summary* — emit when any filter is active. Default-only state renders as `default (excludes resolved + child groups)`. Explicit non-status filters prefix with `default + ` (e.g. `default + team=prod-sre`). Explicit `--state` overrides the default. `> 80 chars` collapses to `<N filters>`. Silent when `--all` is passed and no other filter is active.
+- *Drill-in navigation* — two hints emitted when result count > 0, using literal `<id>` placeholder (template-shaped, not row-specific): `gcx irm oncall alert-groups get <id>` and `gcx irm oncall alert-groups list-alerts <id>`.
+
+Both fire after the round-14 `--limit` truncation hint, not in place of it. All three may emit in one invocation.
+
+**b. `list-alerts` table column rework** — drop redundant-with-parent fields, emphasize links:
+
+```yaml
+# alert-groups list-alerts -o table (4 cols)
+columns: [NAME, STATE, RULE, DASHBOARD]
+column_widths: [16, 14, 0, 0]
+# RULE cell: status.links.alert.rule.url || status.links.alert.rule.uid || "-"
+# DASHBOARD cell: status.links.dashboard.url || status.links.dashboard.uid || "-"
+
+# alert-groups list-alerts -o wide (8 cols)
+columns: [NAME, STATE, RULE.UID, RULE.URL, INSTANCE.SILENCEURL, DASHBOARD.UID, DASHBOARD.URL, DASHBOARD.PANEL.URL]
+column_widths: [16, 14, 16, 0, 0, 0, 0, 0]
+```
+
+Dropped from both default and wide: SEVERITY, TARGET.CLUSTER, TARGET.SERVICE, STARTED — all live at the parent AlertGroup so showing them per alert was redundant noise. JSON/YAML emission unchanged (typed envelope already carries `{uid, url}` for each link).
+
+**c. `list-alerts` conditional link hints** — emit when any alert in the result has `status.links.alert.rule.uid` populated. First occurrence wins (avoids per-rule noise on multi-rule groups):
+
+```
+hint: inspect rule:        gcx alert rules get <first-rule-uid>
+hint: see live instances:  gcx alert instances list --rule <first-rule-uid>
+```
+
+SLO and dashboard hints deferred — SLO data is at parent-group level (would require an extra round trip), dashboard `gcx resources get` syntax for typed CRUD wasn't confirmed in scope.
+
+Helper functions added (worth knowing for doc maintenance):
+
+- `stringifyAlertGroupListFilters(opts)` + `alertGroupListHasExplicitFilter(opts)` — filter-summary serialization.
+- `emitAlertGroupListFilterHint`, `emitAlertGroupListNavHints`, `emitListAlertsLinkHints` — emission helpers.
+- `firstAlertRuleUID(envs)` in `oncall_extract.go` — linear scan, first non-empty wins.
+- `alertRuleCellPreferURL`, `alertDashboardCellPreferURL` — per-cell URL-over-UID precedence.
+
+Hint pattern variants surfaced (for `docs/design/output-shapes.md` codification):
+
+- Filter-summary hint diverges from the standard `hint: <summary>: <command>` form — uses inline prose (`pass --all to... or --help for...`) with the suggested command embedded separately in the agent-mode JSONL `command` field. Permitted variant when the suggestion needs prose alternatives.
+- Nav hints use literal `<id>` placeholder so the JSONL `command` stays row-agnostic. Link hints embed a concrete UID since one is canonical across the result. Both are valid; choice depends on whether there's a single canonical value or many.
+
+Live-verified on ops with grafana_alerting integration: all hint emissions on stderr (TTY + agent), URL preferred over UID in default RULE / DASHBOARD cells, ellipsis truncation at 16 chars on RULE.UID in wide mode, YAML rule `{uid, url}` pair preserved.
+
 ## What landed
 
 ### Code
