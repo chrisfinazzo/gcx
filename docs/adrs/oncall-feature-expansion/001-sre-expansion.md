@@ -345,6 +345,8 @@ For every mutating and long-running command in this ADR (`alert-groups acknowled
 
 Single-target invocations (positional `<id>` arg) and bulk-by-filter invocations (`--filter` form) emit MUTUALLY-EXCLUSIVE shapes. The two-shape rule is a project-wide design rule — single-target = per-resource detail (aligned with the PR #597 instrumentation MutationResult shape); bulk = aggregate counts + enumerated failures (aligned with issue #264's mutation-summary philosophy).
 
+The two-shape rule is codified project-wide in [`docs/design/output-shapes.md`](../../design/output-shapes.md) § 3 — refer there for the canonical specification, the rationale, and field-level details that apply to every provider. The summary below is the IRM-specific instantiation of that rule.
+
 **Single-target (positional `<id>`)**:
 
 ```json

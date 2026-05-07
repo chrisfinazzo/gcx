@@ -9,6 +9,7 @@ New commands and providers **must comply with all rules documented here**.
 | Document | Domain |
 |----------|--------|
 | [output.md](output.md) | Output codecs, status messages, JSON field selection, mutation summaries |
+| [output-shapes.md](output-shapes.md) | JSON shapes for list / read / mutation / error / hint outputs; codec implementation notes |
 | [exit-codes.md](exit-codes.md) | Exit code taxonomy and implementation |
 | [safety.md](safety.md) | Confirmation prompts, --yes, dry-run, idempotency |
 | [errors.md](errors.md) | DetailedError structure, converters, in-band JSON errors |

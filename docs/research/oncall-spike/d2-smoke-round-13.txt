@@ -1,0 +1,213 @@
+=== D2 SMOKE ROUND 13 ===
+
+--- ID 1: help-text presence ---
+Get an alert group by ID.
+
+Usage:
+  gcx irm oncall alert-groups get <id> [flags]
+
+Flags:
+  -h, --help            help for get
+      --include-raw     Include the unprocessed Alertmanager-shape payload under status.raw (hidden by default; the curated status.{target,links,...} blocks are the promoted view of the same data)
+      --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
+      --open            Open the alert group in your browser after retrieval succeeds.
+  -o, --output string   Output format. One of: json, yaml (default "json")
+
+Global Flags:
+      --agent              Enable agent mode (JSON output, no color). Auto-detected from CLAUDECODE, CLAUDE_CODE, CURSOR_AGENT, GITHUB_COPILOT, AMAZON_Q, or GCX_AGENT_MODE env vars.
+      --config string      Path to the configuration file to use
+      --context string     Name of the context to use (overrides current-context in config)
+      --log-http-payload   Log full HTTP request/response bodies (includes headers — may expose tokens)
+      --no-color           Disable color output
+      --no-truncate        Disable table column truncation (auto-enabled when stdout is piped)
+  -v, --verbose count      Verbose mode. Multiple -v options increase the verbosity (maximum: 3).
+
+Tip:
+  Use --json list to discover available fields, --json field1,field2 to select specific fields.
+EXIT: 0
+
+--- ID 2: agent-mode JSONL stderr ---
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+{"class":"note","summary":"--open is ignored in agent mode","url":"https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IWDIPP8VLKENJ"}
+EXIT: 0
+
+--- ID 3: agent-mode stdout with --open ---
+{
+  "apiVersion": "oncall.ext.grafana.app/v1alpha1",
+  "kind": "AlertGroup",
+  "metadata": {
+    "name": "IWDIPP8VLKENJ",
+    "namespace": "stacks-27821",
+    "creationTimestamp": "2026-05-05T19:29:23.381143Z"
+  },
+  "spec": {
+    "integration": {
+      "id": "CR7MM8GWK6XCD",
+      "name": "am-app-platform",
+      "type": "alertmanager"
+    },
+    "team": {
+      "id": "TKH52TW6TH7UE",
+      "name": "App Platform"
+    },
+    "permalinks": {
+      "web": "https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IWDIPP8VLKENJ",
+      "slack": "https://raintank-corp.slack.com/archives/C09NR2APMEJ/p1778009363731639",
+      "slack_app": "https://slack.com/app_redirect?channel=C09NR2APMEJ\u0026team=T02S4RCS0\u0026message=1778009363.731639"
+    }
+  },
+  "status": {
+    "title": "Dashboard Service: Error Rate - Error Budget Burn Rate is Very High ",
+    "summary": "Error budget is burning too fast due to a high rate of 5xx responses from the dashboard service.",
+    "severity": "warning",
+    "state": "resolved",
+    "runbookURL": "https://github.com/grafana/deployment_tools/blob/master/docs/grafana-app-platform/runbooks.md#dashboard-service-error-rate",
+    "target": {
+      "cluster": "prod-us-east-0",
+      "service": "dashboard-service"
+    },
+    "timestamps": {
+      "started": "2026-05-05T19:29:23.381143Z",
+      "acknowledged": "2026-05-05T19:32:47.471213Z",
+      "resolved": "2026-05-06T08:49:23.434101Z"
+    },
+    "links": {
+      "alert": {
+        "rule": {
+          "uid": "dfh3yvlw5owlcc",
+          "url": "https://ops.grafana-ops.net/alerting/grafana/dfh3yvlw5owlcc/view"
+        },
+        "instance": {
+          "id": "aca947af06950ed1"
+        }
+      },
+      "dashboard": {
+        "uid": "grafana_slo_app-vokcpl8zr3j0j12mm0o5y",
+        "url": "https://ops.grafana-ops.net/d/st6qzlk/git-sync?var-cluster=prod-us-east-0\u0026from=now-6h\u0026to=now",
+        "panel": {
+          "id": 1
+        }
+      },
+      "slo": {
+        "uid": "vokcpl8zr3j0j12mm0o5y",
+        "name": "Dashboard Service: Error Rate"
+      }
+    },
+    "alertsCount": 5
+  }
+}
+EXIT: 0
+
+--- ID 4: no-flag baseline stdout + stderr check ---
+{
+  "apiVersion": "oncall.ext.grafana.app/v1alpha1",
+  "kind": "AlertGroup",
+  "metadata": {
+    "name": "IWDIPP8VLKENJ",
+    "namespace": "stacks-27821",
+    "creationTimestamp": "2026-05-05T19:29:23.381143Z"
+  },
+  "spec": {
+    "integration": {
+      "id": "CR7MM8GWK6XCD",
+      "name": "am-app-platform",
+      "type": "alertmanager"
+    },
+    "team": {
+      "id": "TKH52TW6TH7UE",
+      "name": "App Platform"
+    },
+    "permalinks": {
+      "web": "https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IWDIPP8VLKENJ",
+      "slack": "https://raintank-corp.slack.com/archives/C09NR2APMEJ/p1778009363731639",
+      "slack_app": "https://slack.com/app_redirect?channel=C09NR2APMEJ\u0026team=T02S4RCS0\u0026message=1778009363.731639"
+    }
+  },
+  "status": {
+    "title": "Dashboard Service: Error Rate - Error Budget Burn Rate is Very High ",
+    "summary": "Error budget is burning too fast due to a high rate of 5xx responses from the dashboard service.",
+    "severity": "warning",
+    "state": "resolved",
+    "runbookURL": "https://github.com/grafana/deployment_tools/blob/master/docs/grafana-app-platform/runbooks.md#dashboard-service-error-rate",
+    "target": {
+      "cluster": "prod-us-east-0",
+      "service": "dashboard-service"
+    },
+    "timestamps": {
+      "started": "2026-05-05T19:29:23.381143Z",
+      "acknowledged": "2026-05-05T19:32:47.471213Z",
+      "resolved": "2026-05-06T08:49:23.434101Z"
+    },
+    "links": {
+      "alert": {
+        "rule": {
+          "uid": "dfh3yvlw5owlcc",
+          "url": "https://ops.grafana-ops.net/alerting/grafana/dfh3yvlw5owlcc/view"
+        },
+        "instance": {
+          "id": "aca947af06950ed1"
+        }
+      },
+      "dashboard": {
+        "uid": "grafana_slo_app-vokcpl8zr3j0j12mm0o5y",
+        "url": "https://ops.grafana-ops.net/d/st6qzlk/git-sync?var-cluster=prod-us-east-0\u0026from=now-6h\u0026to=now",
+        "panel": {
+          "id": 1
+        }
+      },
+      "slo": {
+        "uid": "vokcpl8zr3j0j12mm0o5y",
+        "name": "Dashboard Service: Error Rate"
+      }
+    },
+    "alertsCount": 5
+  }
+}
+EXIT: 0
+STDERR was:
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+
+--- ID 5: scope check list ---
+0
+PIPE EXIT: 1
+
+--- ID 6: scope check list-alerts ---
+0
+PIPE EXIT: 1
+
+--- ID 7: sparse-permalink path ---
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+{"class":"note","summary":"--open is ignored in agent mode","url":"https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/INNXAABB8Y2R1"}
+EXIT: 0
+
+--- ID 8: unit tests ---
+# github.com/grafana/gcx/internal/providers/irm [github.com/grafana/gcx/internal/providers/irm.test]
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:44:6: progressEvent redeclared in this block
+	internal/providers/irm/oncall_actions.go:90:6: other declaration of progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:52:6: diagnosticEvent redeclared in this block
+	internal/providers/irm/oncall_actions.go:102:6: other declaration of diagnosticEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:202:6: unknown field Class in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:203:6: unknown field AlertGroupID in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:204:6: unknown field Status in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:271:7: unknown field Class in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:272:7: unknown field AlertGroupID in struct literal of type progressEvent
+internal/providers/irm/oncall_actions.go:409:12: o.Statuses undefined (type *alertGroupActionVerbOpts has no field or method Statuses)
+FAIL	github.com/grafana/gcx/internal/providers/irm [build failed]
+?   	github.com/grafana/gcx/internal/providers/irm/oncallpublic	[no test files]
+ok  	github.com/grafana/gcx/internal/providers/irm/oncalltypes	(cached)
+FAIL
+EXIT: 1
+
+--- ID 9: go vet ---
+# github.com/grafana/gcx/internal/providers/irm [github.com/grafana/gcx/internal/providers/irm.test]
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:44:6: progressEvent redeclared in this block
+	internal/providers/irm/oncall_actions.go:90:6: other declaration of progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:52:6: diagnosticEvent redeclared in this block
+	internal/providers/irm/oncall_actions.go:102:6: other declaration of diagnosticEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:202:6: unknown field Class in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:203:6: unknown field AlertGroupID in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:204:6: unknown field Status in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:271:7: unknown field Class in struct literal of type progressEvent
+internal/providers/irm/spike_d1d3d6d7d8_demo.go:272:7: unknown field AlertGroupID in struct literal of type progressEvent
+internal/providers/irm/oncall_actions.go:409:12: o.Statuses undefined (type *alertGroupActionVerbOpts has no field or method Statuses)
+EXIT: 1
