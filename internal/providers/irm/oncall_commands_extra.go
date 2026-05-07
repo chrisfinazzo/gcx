@@ -111,9 +111,7 @@ func newAlertGroupsCommand(loader OnCallConfigLoader) *cobra.Command {
 		newAlertGroupListCommand(loader),
 		newAlertGroupListAlertsCommand(loader),
 		newAlertGroupGetRichCommand(loader),
-		newAlertGroupActionCommand(loader, "acknowledge", "Acknowledge an alert group.", func(c OnCallAPI, cmd *cobra.Command, id string) error {
-			return c.AcknowledgeAlertGroup(cmd.Context(), id)
-		}),
+		newAcknowledgeCommand(loader),
 		newAlertGroupActionCommand(loader, "resolve", "Resolve an alert group.", func(c OnCallAPI, cmd *cobra.Command, id string) error {
 			return c.ResolveAlertGroup(cmd.Context(), id)
 		}),
