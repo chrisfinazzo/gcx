@@ -1072,10 +1072,16 @@ func (c *slackChannelTableCodec) Encode(w io.Writer, v any) error {
 
 // --- Alert codec (typed: accepts []alertEnvelope) ---
 //
-// Mirrors the alert-group codec but for the per-alert dimensionality emitted
-// by `irm oncall alert-groups list-alerts <id>`. Locked column set captures
-// the per-alert state, severity, target service, and (in wide mode) the
-// rule/dashboard/silenceURL pivot identifiers.
+// Emitted by `irm oncall alert-groups list-alerts <id>`. The locked column
+// set is link-emphasising (D2 round 17): SEVERITY / TARGET.* / STARTED were
+// dropped because they are AlertGroup-level attributes — repeating them on
+// each per-alert row inside the parent group's listing was redundant noise.
+// Default columns: NAME, STATE, RULE, DASHBOARD (URL preferred over UID per
+// cell). Wide mode adds the full link breakdown so SREs can pivot to
+// rules / silences / panels.
+//
+// JSON/YAML emission is unchanged — the typed envelope still carries the
+// full status.links.{alert,dashboard,...} block.
 
 type alertTableCodec struct {
 	noDecodeCodec
@@ -1090,38 +1096,69 @@ func (c *alertTableCodec) Format() format.Format {
 	return "table"
 }
 
+// alertRuleCellPreferURL returns the cell rendering for the default RULE
+// column: URL takes precedence, falling back to UID, then "-". The URL
+// preference matches the locked shape rationale that a clickable URL is
+// more useful than the UID alone in TTY mode.
+func alertRuleCellPreferURL(env alertEnvelope) string {
+	if env.Status.Links == nil || env.Status.Links.Alert == nil || env.Status.Links.Alert.Rule == nil {
+		return "-"
+	}
+	r := env.Status.Links.Alert.Rule
+	if r.URL != "" {
+		return r.URL
+	}
+	if r.UID != "" {
+		return r.UID
+	}
+	return "-"
+}
+
+// alertDashboardCellPreferURL mirrors alertRuleCellPreferURL for the
+// DASHBOARD column.
+func alertDashboardCellPreferURL(env alertEnvelope) string {
+	if env.Status.Links == nil || env.Status.Links.Dashboard == nil {
+		return "-"
+	}
+	d := env.Status.Links.Dashboard
+	if d.URL != "" {
+		return d.URL
+	}
+	if d.UID != "" {
+		return d.UID
+	}
+	return "-"
+}
+
 func (c *alertTableCodec) Encode(w io.Writer, v any) error {
 	envs, ok := v.([]alertEnvelope)
 	if !ok {
 		return errors.New("invalid data type for table codec: expected []alertEnvelope")
 	}
 	var t *style.TableBuilder
-	// Widths follow the same content+padding semantics as alertGroupTableCodec
-	// (lipgloss Width includes the Padding(0,1) frame): a 16-wide NAME column
-	// holds a 13-char OnCall PK plus headroom on a single line.
+	// Width semantics match alertGroupTableCodec (lipgloss Padding(0,1) frame
+	// included in Width()): a 16-wide NAME column holds a 13-char OnCall PK
+	// plus headroom. Fixed widths are applied via truncateRunes below; flex
+	// columns (width 0) absorb residual terminal width and rely on lipgloss
+	// to wrap long URLs rather than reproducing per-column ellipsis budgets.
 	if c.Wide {
-		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.CLUSTER", "TARGET.SERVICE", "LINKS.ALERT.RULE.UID", "LINKS.DASHBOARD.UID", "LINKS.ALERT.INSTANCE.SILENCEURL", "STARTED")
-		t.ColumnWidths([]int{16, 14, 10, 0, 0, 16, 16, 0, 12})
+		t = style.NewTable("NAME", "STATE", "RULE.UID", "RULE.URL", "INSTANCE.SILENCEURL", "DASHBOARD.UID", "DASHBOARD.URL", "DASHBOARD.PANEL.URL")
+		t.ColumnWidths([]int{16, 14, 16, 0, 0, 0, 0, 0})
 	} else {
-		t = style.NewTable("NAME", "STATE", "SEVERITY", "TARGET.SERVICE", "STARTED")
-		t.ColumnWidths([]int{16, 14, 10, 0, 12})
+		t = style.NewTable("NAME", "STATE", "RULE", "DASHBOARD")
+		t.ColumnWidths([]int{16, 14, 0, 0})
 	}
 	for _, env := range envs {
 		name := env.Metadata.Name
 		state := orDash(env.Status.State)
-		severity := orDash(env.Status.Severity)
-		started := formatRelativeAge(env.Metadata.CreationTimestamp)
-		cluster, service := "", ""
-		if env.Status.Target != nil {
-			cluster = env.Status.Target.Cluster
-			service = env.Status.Target.Service
-		}
 		if c.Wide {
-			ruleUID, dashUID, silenceURL := "", "", ""
+			ruleUID, ruleURL, silenceURL := "", "", ""
+			dashUID, dashURL, panelURL := "", "", ""
 			if env.Status.Links != nil {
 				if env.Status.Links.Alert != nil {
 					if env.Status.Links.Alert.Rule != nil {
 						ruleUID = env.Status.Links.Alert.Rule.UID
+						ruleURL = env.Status.Links.Alert.Rule.URL
 					}
 					if env.Status.Links.Alert.Instance != nil {
 						silenceURL = env.Status.Links.Alert.Instance.SilenceURL
@@ -1129,12 +1166,24 @@ func (c *alertTableCodec) Encode(w io.Writer, v any) error {
 				}
 				if env.Status.Links.Dashboard != nil {
 					dashUID = env.Status.Links.Dashboard.UID
+					dashURL = env.Status.Links.Dashboard.URL
+					if env.Status.Links.Dashboard.Panel != nil {
+						panelURL = env.Status.Links.Dashboard.Panel.URL
+					}
 				}
 			}
-			t.Row(name, state, severity, orDash(cluster), orDash(service),
-				orDash(ruleUID), orDash(dashUID), orDash(silenceURL), started)
+			// Apply rune-aware ellipsis to fixed-width cells (RULE.UID at
+			// width 16); flex cells (URLs) are left to lipgloss wrapping.
+			t.Row(name, state,
+				truncateRunes(orDash(ruleUID), 16),
+				orDash(ruleURL),
+				orDash(silenceURL),
+				orDash(dashUID),
+				orDash(dashURL),
+				orDash(panelURL),
+			)
 		} else {
-			t.Row(name, state, severity, orDash(service), started)
+			t.Row(name, state, alertRuleCellPreferURL(env), alertDashboardCellPreferURL(env))
 		}
 	}
 	return t.Render(w)

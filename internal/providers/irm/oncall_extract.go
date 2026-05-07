@@ -471,6 +471,24 @@ func firstAlertOrNil(alerts []amAlertRaw) *amAlertRaw {
 	return &alerts[0]
 }
 
+// firstAlertRuleUID returns the first non-empty status.links.alert.rule.uid
+// across the alert envelopes. Used by the list-alerts post-result hint
+// emission (D2 round 17) to render `gcx alert rules get <uid>` and
+// `gcx alert instances list --rule <uid>` hints with a concrete UID. When
+// alerts span multiple rules, the first occurrence wins (avoids hint noise).
+// Returns "" when no alert carries a rule UID.
+func firstAlertRuleUID(envs []alertEnvelope) string {
+	for _, env := range envs {
+		if env.Status.Links == nil || env.Status.Links.Alert == nil || env.Status.Links.Alert.Rule == nil {
+			continue
+		}
+		if uid := env.Status.Links.Alert.Rule.UID; uid != "" {
+			return uid
+		}
+	}
+	return ""
+}
+
 // toAlertmanagerAlerts normalizes amAlertRaw entries into the public AlertmanagerAlert shape.
 func toAlertmanagerAlerts(in []amAlertRaw) []oncalltypes.AlertmanagerAlert {
 	if len(in) == 0 {

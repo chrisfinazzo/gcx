@@ -269,12 +269,28 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 				return err
 			}
 
+			stderr := cmd.ErrOrStderr()
+
 			// Hint emission (locked shape, D2 round 14): only when the user
 			// accepted truncation (--limit > 0), the result hit the limit
 			// exactly, AND the server confirmed more pages exist. Otherwise
 			// silent.
 			if opts.Limit > 0 && len(envs) == opts.Limit && serverHasMore {
-				emitAlertGroupListLimitHint(cmd.ErrOrStderr(), opts.Limit)
+				emitAlertGroupListLimitHint(stderr, opts.Limit)
+			}
+
+			// Filter-summary hint (D2 round 17): silent only when --all is
+			// passed AND no other filter flag is in effect (the "show me
+			// everything, raw" case).
+			if !(opts.All && !alertGroupListHasExplicitFilter(opts)) {
+				emitAlertGroupListFilterHint(stderr, stringifyAlertGroupListFilters(opts))
+			}
+
+			// Drill-in navigation hints (D2 round 17): always emitted when
+			// the result set is non-empty. Use a literal `<id>` placeholder
+			// so the agent-mode template stays generic.
+			if len(envs) > 0 {
+				emitAlertGroupListNavHints(stderr)
 			}
 			return nil
 		},
@@ -297,6 +313,129 @@ func emitAlertGroupListLimitHint(stderr io.Writer, limit int) {
 	suggested := limit * 2
 	summary := fmt.Sprintf("showing first %d results — pass --limit %d to fetch more or --limit 0 for all", limit, suggested)
 	emitHint(stderr, summary, "")
+}
+
+// alertGroupListFilterMaxLen caps the rendered filter summary at a generous
+// budget so the TTY hint stays readable on a typical terminal width.
+const alertGroupListFilterMaxLen = 80
+
+// stringifyAlertGroupListFilters renders the user's effective filter set for
+// the alert-groups list filter-summary hint (D2 round 17). Returns a compact,
+// comma-joined description suitable for embedding in a single hint line.
+//
+// When only the implicit defaults are in effect (no flag set, --all not
+// passed), returns "default (excludes resolved + child groups)". Explicit
+// filters are listed in a stable order: state, team, integration, max-age,
+// mine, with-resolution-note, has-related-incident, include-child-groups, all.
+// If the rendered summary exceeds alertGroupListFilterMaxLen, falls back to a
+// short "<N filters>" summary.
+func stringifyAlertGroupListFilters(opts *alertGroupListOpts) string {
+	parts := make([]string, 0, 8)
+	if len(opts.States) > 0 {
+		parts = append(parts, "status="+strings.Join(opts.States, ","))
+	}
+	if len(opts.Teams) > 0 {
+		parts = append(parts, "team="+strings.Join(opts.Teams, ","))
+	}
+	if len(opts.Integrations) > 0 {
+		parts = append(parts, "integration="+strings.Join(opts.Integrations, ","))
+	}
+	if opts.MaxAge != "" {
+		parts = append(parts, "max-age="+opts.MaxAge)
+	}
+	if opts.Mine {
+		parts = append(parts, "mine")
+	}
+	if opts.WithResolutionNote {
+		parts = append(parts, "with-resolution-note")
+	}
+	if opts.HasRelatedIncident {
+		parts = append(parts, "has-related-incident")
+	}
+	if opts.IncludeChildGroups {
+		parts = append(parts, "include-child-groups")
+	}
+	if opts.All {
+		parts = append(parts, "all")
+	}
+
+	if len(parts) == 0 {
+		// Implicit-defaults state — no flags set, --all not passed.
+		return "default (excludes resolved + child groups)"
+	}
+	out := strings.Join(parts, ", ")
+	if len(out) > alertGroupListFilterMaxLen {
+		return fmt.Sprintf("%d filters", len(parts))
+	}
+	// When only defaults are augmented (no --all, no --include-child-groups,
+	// no explicit --state), prefix with "default" to make the implicit
+	// exclusions visible alongside the active filters.
+	if !opts.All && !opts.IncludeChildGroups && len(opts.States) == 0 {
+		out = "default + " + out
+	}
+	return out
+}
+
+// alertGroupListHasExplicitFilter reports whether any filter flag besides
+// --all is in effect. Used to decide whether the filter-summary hint stays
+// silent in the "user passed --all and nothing else" case.
+func alertGroupListHasExplicitFilter(opts *alertGroupListOpts) bool {
+	return opts.MaxAge != "" ||
+		len(opts.States) > 0 ||
+		len(opts.Teams) > 0 ||
+		len(opts.Integrations) > 0 ||
+		opts.Mine ||
+		opts.WithResolutionNote ||
+		opts.HasRelatedIncident ||
+		opts.IncludeChildGroups
+}
+
+// emitAlertGroupListFilterHint emits the filter-summary hint for
+// `alert-groups list` (D2 round 17). Locked shape:
+//
+//	TTY:    "hint: listing alert groups with filter <stringified>; pass --all to include resolved + child groups, or --help for more filters"
+//	agent:  {"class":"hint","summary":"listing alert groups with filter <stringified>","command":"gcx irm oncall alert-groups list --all"}
+//
+// The TTY form is a single sentence (no `: <command>` suffix), so it can't
+// reuse emitHint directly — we assemble the line here and reuse the
+// existing actionDiagnosticEvent struct for the agent-mode JSONL record.
+func emitAlertGroupListFilterHint(stderr io.Writer, filterSummary string) {
+	short := "listing alert groups with filter " + filterSummary
+	if agent.IsAgentMode() {
+		ev := actionDiagnosticEvent{
+			Class:   "hint",
+			Summary: short,
+			Command: "gcx irm oncall alert-groups list --all",
+		}
+		b, _ := json.Marshal(ev) //nolint:errcheck // stable struct
+		fmt.Fprintln(stderr, string(b))
+		return
+	}
+	fmt.Fprintf(stderr, "hint: %s; pass --all to include resolved + child groups, or --help for more filters\n", short)
+}
+
+// emitAlertGroupListNavHints emits the two drill-in navigation hints fired
+// after `alert-groups list` returns a non-empty result set. Both use the
+// literal `<id>` placeholder string so the agent-mode events stay
+// template-shaped (the user picks the row).
+func emitAlertGroupListNavHints(stderr io.Writer) {
+	emitHint(stderr, "drill into a group", "gcx irm oncall alert-groups get <id>")
+	emitHint(stderr, "see alerts within a group", "gcx irm oncall alert-groups list-alerts <id>")
+}
+
+// emitListAlertsLinkHints emits the conditional rule/instance hints fired
+// after `alert-groups list-alerts <id>` (D2 round 17) when at least one
+// alert in the result set carries a links.alert.rule.uid.
+//
+// Multi-rule case: first occurrence wins (avoids hint noise from per-rule
+// repetition). SLO and dashboard hints intentionally skipped this round —
+// SLO is group-level, dashboard pivot syntax is unconfirmed.
+func emitListAlertsLinkHints(stderr io.Writer, ruleUID string) {
+	if ruleUID == "" {
+		return
+	}
+	emitHint(stderr, "inspect rule", "gcx alert rules get "+ruleUID)
+	emitHint(stderr, "see live instances", "gcx alert instances list --rule "+ruleUID)
 }
 
 // listAlertGroupsLegacy is the SA-token-mode fallback that goes through the
@@ -742,7 +881,15 @@ func newAlertGroupListAlertsCommand(loader OnCallConfigLoader) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return opts.IO.Encode(cmd.OutOrStdout(), envs)
+			if err := opts.IO.Encode(cmd.OutOrStdout(), envs); err != nil {
+				return err
+			}
+
+			// Conditional rule-pivot hints (D2 round 17). Emit when the
+			// result set carries at least one rule UID; first occurrence
+			// wins so multi-rule groups don't produce hint noise.
+			emitListAlertsLinkHints(cmd.ErrOrStderr(), firstAlertRuleUID(envs))
+			return nil
 		},
 	}
 	opts.setup(cmd.Flags())
