@@ -1,0 +1,277 @@
+=== D2 Smoke Rounds 12-15 — Thu May  7 12:18:16 UTC 2026 ===
+
+--- ID 1,2,3: alert-groups list --limit 3 -o table ---
+ID             TITLE                                                             SEVERITY  STATE         TEAM       STARTED
+IDQRN99KGN1K6  TempoWriteOTLPGatewayErrorBudgetBurn                              critical  acknowledged  Tempo      just now
+IETS9QUR9LFUC  Pyroscope: PerTenantReadsNative - Error Budget Burn Rate is High  -         acknowledged  pyroscope  1m ago
+IFDA99CDWMZCI  MimirCellVersionNotMatchingSchedule                               warning   acknowledged  Alerting   2m ago
+{"class":"hint","summary":"showing first 3 results — pass --limit 6 to fetch more or --limit 0 for all"}
+
+--- ID 4: alert-groups list --limit 3 -owide ---
+ID             TITLE                                                             SEVERITY  STATE         TEAM       INTEGRATION      TARGET.CLUSTER  TARGET.SERVICE  ALERTS  LINKS.SLO.NAME  STARTED
+IDQRN99KGN1K6  TempoWriteOTLPGatewayErrorBudgetBurn                              critical  acknowledged  Tempo      am-tempo-alerts  -               -               1       -               just now
+IETS9QUR9LFUC  Pyroscope: PerTenantReadsNative - Error Budget Burn Rate is High  -         acknowledged  pyroscope  am-pyroscope     -               -               1       -               1m ago
+IFDA99CDWMZCI  MimirCellVersionNotMatchingSchedule                               warning   acknowledged  Alerting   am-alerting-dev  -               -               1       -               2m ago
+{"class":"hint","summary":"showing first 3 results — pass --limit 6 to fetch more or --limit 0 for all"}
+
+--- ID 5: alert-groups list --limit 3 -o yaml | head -25 ---
+  - apiVersion: oncall.ext.grafana.app/v1alpha1
+    kind: AlertGroup
+    metadata:
+      name: IDQRN99KGN1K6
+      namespace: stacks-27821
+      creationTimestamp: "2026-05-07T12:17:40.872028Z"
+    spec:
+      integration:
+        id: C59ATH7AS6KTX
+        name: am-tempo-alerts
+        type: alertmanager
+      team:
+        id: TLRKT4ICU5BAJ
+        name: Tempo
+      permalinks:
+        web: https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IDQRN99KGN1K6
+        slack: https://raintank-corp.slack.com/archives/C011CQWMA2U/p1778156261182489
+        slack_app: https://slack.com/app_redirect?channel=C011CQWMA2U&team=T02S4RCS0&message=1778156261.182489
+    status:
+      title: TempoWriteOTLPGatewayErrorBudgetBurn
+      severity: critical
+      state: acknowledged
+      timestamps:
+        started: "2026-05-07T12:17:40.872028Z"
+        acknowledged: "2026-05-07T12:17:53.716308Z"
+
+--- ID 6: alert-groups list --limit 100 (last 5 lines) ---
+      "alertsCount": 3
+    }
+  }
+]
+{"class":"hint","summary":"showing first 100 results — pass --limit 200 to fetch more or --limit 0 for all"}
+
+--- ID 7: GCX_AGENT_MODE=true list --limit 3 stderr only ---
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+{"class":"hint","summary":"showing first 3 results — pass --limit 6 to fetch more or --limit 0 for all"}
+
+--- ID 8: alert-groups list --limit 0 -o table (head -3, no hint) ---
+ID             TITLE                                                                                                        SEVERITY  STATE         TEAM                         STARTED
+IDQRN99KGN1K6  TempoWriteOTLPGatewayErrorBudgetBurn                                                                         critical  acknowledged  Tempo                        just now
+IETS9QUR9LFUC  Pyroscope: PerTenantReadsNative - Error Budget Burn Rate is High                                             -         acknowledged  pyroscope                    1m ago
+
+--- ID 9: alert-groups get IWDIPP8VLKENJ ---
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+{
+  "apiVersion": "oncall.ext.grafana.app/v1alpha1",
+  "kind": "AlertGroup",
+  "metadata": {
+    "name": "IWDIPP8VLKENJ",
+    "namespace": "stacks-27821",
+    "creationTimestamp": "2026-05-05T19:29:23.381143Z"
+  },
+  "spec": {
+    "integration": {
+      "id": "CR7MM8GWK6XCD",
+      "name": "am-app-platform",
+      "type": "alertmanager"
+    },
+    "team": {
+      "id": "TKH52TW6TH7UE",
+      "name": "App Platform"
+    },
+    "permalinks": {
+      "web": "https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IWDIPP8VLKENJ",
+      "slack": "https://raintank-corp.slack.com/archives/C09NR2APMEJ/p1778009363731639",
+      "slack_app": "https://slack.com/app_redirect?channel=C09NR2APMEJ\u0026team=T02S4RCS0\u0026message=1778009363.731639"
+    }
+  },
+  "status": {
+    "title": "Dashboard Service: Error Rate - Error Budget Burn Rate is Very High ",
+    "summary": "Error budget is burning too fast due to a high rate of 5xx responses from the dashboard service.",
+    "severity": "warning",
+    "state": "acknowledged",
+    "runbookURL": "https://github.com/grafana/deployment_tools/blob/master/docs/grafana-app-platform/runbooks.md#dashboard-service-error-rate",
+    "target": {
+      "cluster": "prod-us-east-0",
+      "service": "dashboard-service"
+    },
+    "timestamps": {
+      "started": "2026-05-05T19:29:23.381143Z",
+      "acknowledged": "2026-05-07T09:15:29.085678Z"
+    },
+    "links": {
+      "alert": {
+        "rule": {
+          "uid": "dfh3yvlw5owlcc",
+          "url": "https://ops.grafana-ops.net/alerting/grafana/dfh3yvlw5owlcc/view"
+        },
+        "instance": {
+          "id": "aca947af06950ed1"
+        }
+      },
+      "dashboard": {
+        "uid": "grafana_slo_app-vokcpl8zr3j0j12mm0o5y",
+        "url": "https://ops.grafana-ops.net/d/st6qzlk/git-sync?var-cluster=prod-us-east-0\u0026from=now-6h\u0026to=now",
+        "panel": {
+          "id": 1
+        }
+      },
+      "slo": {
+        "uid": "vokcpl8zr3j0j12mm0o5y",
+        "name": "Dashboard Service: Error Rate"
+      }
+    },
+    "alertsCount": 5
+  }
+}
+
+--- ID 10: alert-groups get --help | grep -A1 -- --open ---
+      --open            Open the alert group in your browser after retrieval succeeds.
+  -o, --output string   Output format. One of: json, yaml (default "json")
+
+--- ID 11: GCX_AGENT_MODE=true get IWDIPP8VLKENJ --open stderr ---
+hint: use --json list to discover fields, --json field1,field2 to select — no external parsing needed
+{"class":"note","summary":"--open is ignored in agent mode","url":"https://ops.grafana-ops.net/a/grafana-irm-app/alert-groups/IWDIPP8VLKENJ"}
+
+--- ID 12: list-alerts IWDIPP8VLKENJ --limit 3 -o table ---
+warn: retrieved 3 of 5 alerts; pass `--limit 0` to fetch all
+NAME           STATE     SEVERITY  TARGET.SERVICE     STARTED
+AC78DZJCPB22S  resolved  warning   dashboard-service  -
+AV41BJT8JHYKU  firing    warning   dashboard-service  -
+A61154KIR7PF8  firing    warning   dashboard-service  -
+
+--- ID 13: list-alerts IWDIPP8VLKENJ --limit 3 -owide ---
+warn: retrieved 3 of 5 alerts; pass `--limit 0` to fetch all
+NAME           STATE     SEVERITY  TARGET.CLUSTER  TARGET.SERVICE     LINKS.ALERT.RULE.UID  LINKS.DASHBOARD.UID                    LINKS.ALERT.INSTANCE.SILENCEURL  STARTED
+AC78DZJCPB22S  resolved  warning   prod-us-east-0  dashboard-service  dfh3yvlw5owlcc        grafana_slo_app-vokcpl8zr3j0j12mm0o5y  -                                -
+AV41BJT8JHYKU  firing    warning   prod-us-east-0  dashboard-service  dfh3yvlw5owlcc        grafana_slo_app-vokcpl8zr3j0j12mm0o5y  -                                -
+A61154KIR7PF8  firing    warning   prod-us-east-0  dashboard-service  dfh3yvlw5owlcc        grafana_slo_app-vokcpl8zr3j0j12mm0o5y  -                                -
+
+--- ID 14/15: GCX_AGENT_MODE=true acknowledge IWDIPP8VLKENJ (run 1) ---
+{"event":"noop","target":{"alertGroupID":"IWDIPP8VLKENJ"}}
+{
+  "action": "acknowledge",
+  "target": {
+    "alertGroupId": "IWDIPP8VLKENJ"
+  },
+  "changed": false
+}
+{"class":"hint","summary":"See live alerts","command":"gcx irm oncall alert-groups get IWDIPP8VLKENJ"}
+
+--- ID 15: GCX_AGENT_MODE=true acknowledge IWDIPP8VLKENJ (run 2 idempotent) ---
+{"event":"noop","target":{"alertGroupID":"IWDIPP8VLKENJ"}}
+{
+  "action": "acknowledge",
+  "target": {
+    "alertGroupId": "IWDIPP8VLKENJ"
+  },
+  "changed": false
+}
+{"class":"hint","summary":"See live alerts","command":"gcx irm oncall alert-groups get IWDIPP8VLKENJ"}
+
+--- ID 16: GCX_AGENT_MODE=true acknowledge --max-age 1h --yes ---
+{"event":"noop","target":{"alertGroupID":"I2TX6EM5IKLYG"}}
+{"event":"noop","target":{"alertGroupID":"I3E7PMCT384L4"}}
+{"event":"noop","target":{"alertGroupID":"I3GKNFH7EBTFB"}}
+{"event":"noop","target":{"alertGroupID":"I3Y2R72ZYIUJC"}}
+{"event":"noop","target":{"alertGroupID":"IA6G7DQ42FAUK"}}
+{"event":"noop","target":{"alertGroupID":"IAG8U3LDTGY7Z"}}
+{"event":"noop","target":{"alertGroupID":"ICCBEQUWURZZC"}}
+{"event":"noop","target":{"alertGroupID":"IDQRN99KGN1K6"}}
+{"event":"noop","target":{"alertGroupID":"IETS9QUR9LFUC"}}
+{"event":"noop","target":{"alertGroupID":"IFDA99CDWMZCI"}}
+{"event":"noop","target":{"alertGroupID":"IFDJZ27UBRZ6W"}}
+{"event":"noop","target":{"alertGroupID":"IFP7KARP45BBQ"}}
+{"event":"noop","target":{"alertGroupID":"IG3SHKZAP9PRP"}}
+{"event":"noop","target":{"alertGroupID":"IGCUPV8RJRCC4"}}
+{"event":"noop","target":{"alertGroupID":"IGIXWID8J8SHD"}}
+{"event":"noop","target":{"alertGroupID":"II839Q1NZU1GJ"}}
+{"event":"noop","target":{"alertGroupID":"IJ9H5KKNUJ5JP"}}
+{"event":"noop","target":{"alertGroupID":"IMFQJWWI597VH"}}
+{"event":"noop","target":{"alertGroupID":"INII94KTWUSME"}}
+{"event":"noop","target":{"alertGroupID":"IPYSSTL8HXDN3"}}
+{"event":"noop","target":{"alertGroupID":"IQP8TFEV85URI"}}
+{"event":"noop","target":{"alertGroupID":"ISPDMH194FT4P"}}
+{"event":"noop","target":{"alertGroupID":"ITYFB3UZML6VB"}}
+{"event":"noop","target":{"alertGroupID":"IV2L9B7TNAZQI"}}
+{"event":"noop","target":{"alertGroupID":"IVDSW6SPHYJIN"}}
+{"event":"noop","target":{"alertGroupID":"IW91WZK99UMQK"}}
+{"event":"noop","target":{"alertGroupID":"IWH55L7QD5XRN"}}
+{"event":"noop","target":{"alertGroupID":"IX77L5R969SJM"}}
+{
+  "action": "acknowledge",
+  "summary": {
+    "matched": 28,
+    "succeeded": 0,
+    "skipped": 28,
+    "failed": 0
+  },
+  "failures": []
+}
+{"class":"hint","summary":"See live alerts","command":"gcx irm oncall alert-groups get I2TX6EM5IKLYG"}
+
+--- ID 17: GCX_AGENT_MODE=true acknowledge ZZZINVALIDID ---
+{"error":{"summary":"Fetch alert group \"ZZZINVALIDID\"","exitCode":1}}
+Exit was non-zero (expected)
+
+--- ID 18: acknowledge (no id, no filter) ---
+{"error":{"summary":"\u003cid\u003e argument or filter flag required","exitCode":2,"details":"Bulk action verbs require either a positional \u003cid\u003e or one or more filter flags to scope the operation. Acting on every alert group is not supported.","suggestions":["Pass an alert-group ID: gcx irm oncall alert-groups acknowledge \u003cid\u003e","Filter by team: gcx irm oncall alert-groups acknowledge --team \u003cname\u003e --yes","Filter by status + age: gcx irm oncall alert-groups acknowledge --state firing --max-age 24h --yes"]}}
+Exit: 2
+
+--- ID 19: spike d2 IWDIPP8VLKENJ ---
+Exit: 0
+
+--- ID 20: acknowledge --help ---
+Acknowledge alert groups.
+
+Two forms are supported:
+
+  • Single-target: pass a positional <id>.
+  • Bulk-by-filter: omit the positional and pass one or more filter flags
+    (--team, --state, --integration, --max-age, --mine, --all).
+
+Bulk-by-filter prompts for confirmation in TTY mode when the matched count
+exceeds 1; pass --yes to skip the prompt. Agent mode requires --yes
+explicitly when count > 1 (auto-confirm of destructive bulk operations is
+disabled by design).
+
+Idempotent: re-acknowledging an already-acknowledged group reports
+changed:false (single-target) or summary.skipped++ (bulk) — not an error.
+
+Usage:
+  gcx irm oncall alert-groups acknowledge [<id>] [flags]
+
+Flags:
+      --all                   Bypass the default status and is_root filters
+  -h, --help                  help for acknowledge
+      --integration strings   Filter: integration PK (repeatable)
+      --max-age string        Filter: alert groups started within this duration (e.g. 1h, 24h, 7d)
+      --mine                  Filter: limit to alert groups for the authenticated user
+      --state strings         Filter: state (firing|acknowledged|resolved|silenced; repeatable)
+      --team strings          Filter: team PK (repeatable)
+      --yes                   Skip the count-confirmation prompt; required in agent mode when target count > 1
+
+Global Flags:
+      --agent              Enable agent mode (JSON output, no color). Auto-detected from CLAUDECODE, CLAUDE_CODE, CURSOR_AGENT, GITHUB_COPILOT, AMAZON_Q, or GCX_AGENT_MODE env vars.
+      --config string      Path to the configuration file to use
+      --context string     Name of the context to use (overrides current-context in config)
+      --log-http-payload   Log full HTTP request/response bodies (includes headers — may expose tokens)
+      --no-color           Disable color output
+      --no-truncate        Disable table column truncation (auto-enabled when stdout is piped)
+  -v, --verbose count      Verbose mode. Multiple -v options increase the verbosity (maximum: 3).
+
+--- ID 21: go test ./internal/providers/irm/... ---
+ok  	github.com/grafana/gcx/internal/providers/irm	0.738s
+?   	github.com/grafana/gcx/internal/providers/irm/oncallpublic	[no test files]
+ok  	github.com/grafana/gcx/internal/providers/irm/oncalltypes	0.804s
+
+--- ID 21: pre-existing spike token-cost failures ---
+--- FAIL: TestConsistency_AllLeafCommandsHaveTokenCost (0.00s)
+    --- FAIL: TestConsistency_AllLeafCommandsHaveTokenCost/gcx_irm_oncall_spike_client-demo (0.00s)
+    --- FAIL: TestConsistency_AllLeafCommandsHaveTokenCost/gcx_irm_oncall_spike_d2 (0.00s)
+    --- FAIL: TestConsistency_AllLeafCommandsHaveTokenCost/gcx_irm_oncall_spike_d4 (0.00s)
+    --- FAIL: TestConsistency_AllLeafCommandsHaveTokenCost/gcx_irm_oncall_spike_d5 (0.00s)
+
+--- ID 22: go vet ---
+Vet exit: 0
+
+--- ID 23: gofmt ---
+gofmt exit: 0

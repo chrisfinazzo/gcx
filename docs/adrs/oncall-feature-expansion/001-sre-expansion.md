@@ -244,6 +244,8 @@ The promoted-fields-not-nested-block choice is preserved from the earlier draft 
 
 URL template registrations are backfilled where missing (EscalationPolicy, Shift, Route, Team, ResolutionNote, ShiftSwap, User) so the flag works everywhere a `get` command exists.
 
+**Round 13 partial implementation**: `--open` was wired onto `gcx irm oncall alert-groups get` ahead of the full D3 retrofit because round-11 smoke caught its absence. The remaining backfills (EscalationPolicy / Shift / Route / Team / ResolutionNote / ShiftSwap / User) and the `grafana-oncall-app` → `grafana-irm-app` URL template migration remain open and tracked as full D3 in `/plan-spec`.
+
 ### 4. `notifications send` (collapses `oncall escalate` + test endpoints)
 
 A single `$NOUN $VERB`-shaped command replaces both `oncall escalate` (which violates the grammar invariant) and the three OnCall test endpoints (`make_test_call`, `send_test_sms`, `send_test_push`):
@@ -339,20 +341,39 @@ For every mutating and long-running command in this ADR (`alert-groups acknowled
 - **stderr** = zero or more JSON records, one per line, each with a typed `event` or `class` field. For bulk-by-filter operations, one progress event per item (`{"event":"acknowledged","target":{...}}`).
 - A timeout / partial failure / total failure fuses into the result envelope on stdout — **never two documents on stdout**.
 
-#### 7.2 MutationResult envelope
+#### 7.2 MutationResult envelope (two shapes — operation class drives shape)
 
-`notifications send` and the bulk-by-filter action verbs return:
+Single-target invocations (positional `<id>` arg) and bulk-by-filter invocations (`--filter` form) emit MUTUALLY-EXCLUSIVE shapes. The two-shape rule is a project-wide design rule — single-target = per-resource detail (aligned with the PR #597 instrumentation MutationResult shape); bulk = aggregate counts + enumerated failures (aligned with issue #264's mutation-summary philosophy).
+
+**Single-target (positional `<id>`)**:
 
 ```json
 {
   "action": "acknowledge",
-  "target": { "alertGroupIds": ["IKFI...","..."] },
-  "changed": true,
-  "summary": { "matched": 23, "succeeded": 23, "failed": 0 }
+  "target": {"alertGroupId": "IKFI..."},
+  "changed": true
 }
 ```
 
-Single-target invocations return the same shape with `target.alertGroupId` (scalar) and no `summary.matched` (it's always 1). `changed:false` on idempotent re-runs (acknowledge of already-acknowledged group). Inline signal fields are added as needed (e.g., `discovered:bool` if a target is not found by filter).
+`changed:false` on idempotent re-runs (acknowledge of already-acked group). On API failure, `changed` is replaced by `error: {code, message, suggestion}` (see § 7.3); on pre-fetch GET failure, the command exits via canonical DetailedError and emits no MutationResult.
+
+**Bulk-by-filter (`--filter` form, no positional)**:
+
+```json
+{
+  "action": "acknowledge",
+  "summary": {"matched": 23, "succeeded": 18, "skipped": 5, "failed": 0},
+  "failures": []
+}
+```
+
+`summary.matched == succeeded + skipped + failed` (invariant). `succeeded` = newly changed; `skipped` = already in target state (idempotent no-op); `failed` = API call errored. `failures[]` is empty when `failed == 0`, populated only with errored targets — successes are counted, not enumerated (per issue #264). Each failure is `{target: {alertGroupId}, error: {code, message, suggestion}}`.
+
+Mutually exclusive: single-target invocations never emit `summary` / `failures`; bulk invocations never emit top-level `target` / `changed`.
+
+**Field-level diff (`fields[]`)** is reserved for declarative-config writes (PR #597's instrumentation `clusters configure` etc.). State-machine verbs like `acknowledge` / `resolve` / `silence` do NOT emit `fields[]` since they don't have field-granular changes — they're state transitions. The shape rule documents this exclusion explicitly.
+
+TTY rendering is decoupled from JSON shape — both shapes render to a one-line human summary in non-agent mode.
 
 #### 7.3 DetailedError + suggestions
 

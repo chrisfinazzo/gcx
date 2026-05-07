@@ -186,6 +186,40 @@ Codec registration: `alertGroupTableCodec` and `alertTableCodec` are registered 
 
 Commit `43db5743`; smoke 17/17 passing across diversity (alert-groups list/get/list-alerts × default/wide/yaml/json, three integration shapes, slim/include-raw paths, sibling-provider help-text safety).
 
+### 12. Round 12 — `acknowledge` action verb vanguard + two-shape MutationResult
+
+Built `gcx irm oncall alert-groups acknowledge <id>` end-to-end as the vanguard for the action-verb pattern. Single-target + bulk-by-filter forms; MutationResult on stdout per the project two-shape rule (single = `{action, target, changed}`; bulk = `{action, summary, failures}`). Idempotent re-runs surface as `changed:false` (single) or `summary.skipped` (bulk). `--yes` confirmation contract; agent mode requires `--yes` when targets > 1. Live-verified on `ops`: bulk `--max-age 1h --yes` ran with `matched:31 succeeded:27 skipped:4 failed:0` on first run, `matched:28 succeeded:0 skipped:28 failed:0` on the smoke re-run (idempotent edge case — sum invariant holds either way).
+
+The first lift (commit `6a87f655`) shipped a single-shape `targets[]` envelope that conflated single and bulk. After reconciling against PR #597 (which establishes the scalar `target` + top-level `changed` shape for the instrumentation provider) and issue #264 (which specifies aggregate-success + enumerated-failure for bulk push/pull/delete), the refactor (commit `110adb57`) split the shapes: per-resource detail for single-target, aggregate counts + enumerated failures for bulk. Operation class — not provider boundary — drives shape choice. Pattern reference for the remaining five action verbs (resolve / unresolve / silence / unsilence / unacknowledge) which become mechanical clones in `/plan-spec`.
+
+Type names landed: `singleMutationResult`, `bulkMutationResult`, `irmTarget`, `mutationSummary`, `mutationFailure`, `mutationTargetError`. `Changed *bool` with `omitempty` distinguishes "false-but-present" (idempotent) from "absent-on-failure" (error path).
+
+### 13. Round 13 — `--open` flag on `alert-groups get` (mini-D3 cherry-pick)
+
+Pulled the `--open` flag from D3 forward onto `alert-groups get` since round-11 smoke caught its absence. Uses the existing `deeplink.Open(url)` helper and reads the AlertGroup permalink directly from the typed envelope's `Spec.Permalinks.Web` (no need to consult `oncall_adapter.go`'s URL template — the OnCall server already provides the rendered permalink in the response). In agent mode, `--open` is a no-op that emits a `{"class":"note","summary":"--open is ignored in agent mode","url":"..."}` JSONL event on stderr.
+
+Scoped narrowly: wired on `alert-groups get` only. The full D3 URL-template backfill and the `grafana-oncall-app` → `grafana-irm-app` migration (the existing template at `oncall_adapter.go:270` is still on the legacy plugin path; modern Grafana redirects but it's stale) remain open for `/plan-spec`.
+
+### 14. Round 14 — `--limit` flag on `alert-groups list` with cursor-aware hint
+
+Added `--limit int` (default 50) to `alert-groups list`. Default matches synth/slo project precedent. The `listAlertGroupsRaw` request now passes `perpage=min(limit,100)` to the OnCall internal API on the first page (NOT `page_size` — the data-miner caught that the OnCall backend silently ignores `page_size` and only honours `perpage`). Subsequent cursor-paginated pages echo the perpage value. Default `--limit 50` is one round trip; previously the default 25/page would have required two.
+
+Hint emission is gated by three conditions: `limit > 0` (caller accepted truncation), `len(envs) == limit` (we hit the limit), and the server's `next` cursor URL is non-empty (more available). When all three: `hint: showing first N results — pass --limit M to fetch more or --limit 0 for all` on stderr (TTY plain dim, agent JSONL with `class:hint`). Suggested next-limit doubles current. Otherwise silent.
+
+`list-alerts` already had its own `--limit` with a count-aware hint (the OnCall `/alerts/?...` endpoint does return a total `count` field, unlike `/alertgroups/?...`); left untouched.
+
+### 15. Round 15 — table rendering bug fixes
+
+Five bugs surfaced from real `--limit=3 -o table` / `-owide` output:
+
+1. **ID column wrapped to two lines** — root cause: lipgloss `Style.Width()` includes `Padding(0,1)` (confirmed via lipgloss issue #298), so the round-11-locked `colWidths[0]=14` left only 12 chars of content width; 13-char OnCall PKs wrapped. Fix: bumped to 16 in `alertGroupTableCodec`; same arithmetic fix applied to `alertTableCodec` NAME and to LINKS.* UID columns.
+2. **TITLE concatenated `(cluster, namespace)` into the alert name** — root cause: OnCall server-renders `render_for_web.title` as `"AlertName (cluster, namespace)"`, and the round-11 extraction copied this verbatim. Fix: added `stripTitleTargetSuffix` regex (conservative — strips only 1-3 comma-separated identifiers, leaves prose-style parens alone) inside `extractTitleFromRenderForWeb`.
+3. **TITLE wrapped instead of ellipsis-truncating** when narrow — added `truncateRunes` helper (rune-aware, single-char `…` ellipsis) with a width budget computed from `terminal.StdoutWidth()` minus the sum of fixed-width columns and lipgloss border/padding overhead.
+4. **SEVERITY column was `-` for all rows** — root cause: the list endpoint omits `last_alert.raw_request_data` (per the round-2 D2 finding), so the structured-payload extraction in `extractSeverity` short-circuits before setting the field. Fix: added `extractSeverityFromRenderForWeb` HTML fallback that parses `<li>severity: VALUE</li>` out of the OnCall server-rendered message body. Get-path Severity remains structured (it has `raw_request_data` inline); list-path Severity is best-effort HTML-parsed. Both produce the same string output.
+5. **`-o wide` "missing columns" was NOT a regression** — the codec correctly declares all 11 columns; lipgloss compresses (not drops) when terminal width is narrow. Verified at 200-col TTY: TARGET.CLUSTER, TARGET.SERVICE, LINKS.SLO.NAME all render. UX call still open: should narrow-mode behaviour emit a hint, or accept silent compression?
+
+Implementation note: lipgloss `ColumnWidths()` semantics — passed-in widths INCLUDE the cell padding, not just content. Worth codifying alongside the codec pattern doc; doc-editor will surface this in the design-rule pass.
+
 ## What landed
 
 ### Code
@@ -198,6 +232,13 @@ Commit `43db5743`; smoke 17/17 passing across diversity (alert-groups list/get/l
 - **`internal/providers/irm/oncall_commands_extra.go`** (round 11) — replaced `alertGroupTableCodec`/`alertTableCodec` unstructured-consuming bodies with typed envelope readers; added `formatRelativeAge` helper for STARTED column; registered `orderedYAMLCodec` on `alertGroupListOpts` (was missing — root cause of the alphabetical-YAML-on-list issue); deleted dead helpers `alertGroupRichToUnstructured`, `alertRichToUnstructured`, `slimAlertObject`.
 - **`internal/providers/irm/oncall_commands.go`** (round 11) — list path lifted off `unstructured.Unstructured` onto typed envelope; SA-token fallback paths build typed envelopes too.
 - **`internal/output/format.go`** (round 11) — one-line dedupe in `allowedCodecs()` so a custom codec keyed on a builtin name (e.g. `"yaml"`) doesn't appear twice in `-o, --output` help.
+- **`internal/providers/irm/oncall_actions.go`** (round 12 + 12-refactor) — new file housing the action-verb vanguard. Shipped `acknowledge` end-to-end with single-target + bulk-by-filter forms, MutationResult envelopes, `--yes` confirmation, idempotent change detection. Refactor (`110adb57`) split into `singleMutationResult` / `bulkMutationResult` types with shared `irmTarget`, `mutationSummary`, `mutationFailure`. Pattern reference for the remaining five action verbs.
+- **`internal/providers/irm/oncall_actions_test.go`** (round 12) — unit tests for target resolution, MutationResult builder, idempotent-vs-changed detection, confirmation prompt skip-on-yes. Refactor added shape invariants (single/bulk mutual exclusivity, summary sum check via `assertSummaryAddsUp`).
+- **`internal/providers/irm/oncall_commands_extra.go`** (round 13 + 14 + 15) — `--open` flag on `alertGroupGetRichOpts` with `handleAlertGroupOpen` deeplink helper (round 13); `--limit` flag on `alertGroupListOpts` with cursor-aware hint emission and `perpage=min(limit,100)` plumbing through `listAlertGroupsRaw` (round 14); ColumnWidths bumped from 14→16 to fit lipgloss padding (round 15).
+- **`internal/providers/irm/oncall_extract.go`** (round 15) — `stripTitleTargetSuffix` regex helper to strip `(cluster, namespace)` parentheticals from server-rendered titles; `extractSeverityFromRenderForWeb` HTML fallback for list-path severity (since list endpoint omits `raw_request_data`).
+- **`internal/providers/irm/oncall_extract_test.go`** (round 15) — unit tests for the title strip and severity HTML fallback.
+- **`internal/providers/irm/oncall_rich_client.go`** (round 14 + 15) — `WithLimit` plumbed through to the SA-token public-API list path; minor adjustments for the rendered-title strip.
+- **`internal/providers/irm/spike_d1d3d6d7d8_demo.go`** (round 12-refactor) — local types renamed (`mutationResult` → `spikeMutationResult` etc.) to resolve symbol collision with the new production types in `oncall_actions.go`. Throwaway POC; will be deleted in `/plan-spec` cleanup.
 
 ### ADR § 2
 
@@ -232,6 +273,17 @@ gcx --context=ops irm oncall alert-groups list --max-age 24h -o yaml | head -25 
 gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 3 -o table  # 5 cols (was broken)
 gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 3 -o wide   # 9 cols incl. RULE.UID, DASHBOARD.UID, SILENCEURL
 gcx --context=ops irm oncall alert-groups get --help | grep -A2 "output"        # yaml listed once (was twice)
+
+# round 12-15 combined coverage (commit 1a7ca0b2 onwards):
+gcx --context=ops irm oncall alert-groups list --limit 3 -o table          # IDs single-line, titles stripped, severity populated
+gcx --context=ops irm oncall alert-groups list --limit 3 -owide            # all 11 columns including TARGET.* + LINKS.SLO.NAME
+gcx --context=ops irm oncall alert-groups list --limit 100                 # cursor hint when truncated
+gcx --context=ops irm oncall alert-groups list --limit 0                   # no truncation, no hint
+gcx --context=ops irm oncall alert-groups get IWDIPP8VLKENJ --open         # TTY browser open / agent-mode JSONL note
+gcx --context=ops irm oncall alert-groups acknowledge IWDIPP8VLKENJ        # single-target shape: {action, target, changed}
+gcx --context=ops irm oncall alert-groups acknowledge --max-age 1h --yes   # bulk shape: {action, summary, failures}; sum invariant
+gcx --context=ops irm oncall alert-groups acknowledge ZZZINVALIDID         # canonical DetailedError on stderr; exit 1
+gcx --context=ops irm oncall alert-groups acknowledge                      # exit 2; usage error message
 ```
 
 ## Open / deferred
@@ -245,6 +297,10 @@ gcx --context=ops irm oncall alert-groups get --help | grep -A2 "output"        
 | Severity falls back to `groupLabels.severity` (defensible addition not in original spec) | Intentional; documented in code |
 | Multi-entry `payload.alerts[]` lose per-entry distinguishing data in promoted view | Caveat documented in ADR § 2.2; `--include-raw` reveals the array without re-fetch |
 | Off-package edit to `internal/output/format.go::allowedCodecs()` | One-line dedupe shipped in round 11 to fix `yaml`-twice in help. Affects all providers that register a custom codec on a builtin name; behaviour-neutral (lookup unchanged), but worth flagging for future codec-registry work |
+| Narrow-terminal `-o wide` UX | lipgloss compresses columns silently when terminal width < sum of declared widths. Round 15 confirmed all columns are declared correctly. UX call open: emit a hint, or accept silent compression. |
+| URL template migration `grafana-oncall-app` → `grafana-irm-app` | Existing template at `oncall_adapter.go:270` is on the legacy plugin path; modern Grafana redirects but it's stale. Defer to full D3 in `/plan-spec`. |
+| 4 spike token-cost test failures | `gcx_irm_oncall_spike_*` POC commands lack `agent.AnnotationTokenCost` annotations. Self-resolves when spike POCs are deleted in `/plan-spec` cleanup. |
+| Lint vendoring drift | `mise run lint` blocked by go.mod inconsistency. Pre-existing; surface during pre-flight, may need a `go mod tidy` pass. |
 
 ## How to re-open D2
 
@@ -255,3 +311,5 @@ If something needs re-litigating later, the entry points are:
 3. **Adjust default visibility** (e.g. show `raw` by default): flip the default of `--include-raw` in the three command opts setup functions. Update ADR § 2.6.
 4. **Restore field ordering elsewhere** (e.g. on `alert-groups list`): convert that command's emission path to use a typed envelope + `orderedYAMLCodec`. Will require either keeping unstructured for the table codec via a second branch, or porting the table codec to read from envelope structs.
 5. **Adjust column choice or width on a table view**: edit the `headers`/`rows` slice and `colWidths` argument inside `alertGroupTableCodec.Encode` (or `alertTableCodec.Encode`) in `internal/providers/irm/oncall_commands_extra.go`. The list/wide column set is the only place changing — there's no separate registry to update. To swap a row-builder helper, search for `r.format` calls inside `Encode`. Pattern reference: `internal/providers/traces/adaptive/commands.go:110` (`recommendationTableCodec`) and `internal/query/tempo/formatter.go:343` (`formatTrace` — the original `ColumnWidths` consumer).
+6. **Add a new action verb** (resolve / silence / etc.): clone `runAcknowledge` + `executeAcknowledge` in `internal/providers/irm/oncall_actions.go`. The two-shape MutationResult + filter-resolution + confirmation logic is verb-agnostic and shared via `runAcknowledgeSingle` / `runAcknowledgeBulk`. Per-verb idempotency check varies (resolve = state==2; silence = non-idempotent so always POST). Register the new subcommand under `alert-groups`. Pattern reference: `oncall_actions.go` round-12-refactor (`110adb57`).
+7. **Adjust `--limit` defaults or hint wording**: edit `alertGroupListOpts.setup()` (default value) and `emitAlertGroupListLimitHint` (hint string template) in `internal/providers/irm/oncall_commands_extra.go`. The three gating conditions (`limit > 0 && len == limit && serverHasMore`) are the cheapest reliable signal absent a `count` field on the OnCall alertgroups endpoint.

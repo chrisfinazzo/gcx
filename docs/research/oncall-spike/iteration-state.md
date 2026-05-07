@@ -7,8 +7,15 @@ last_updated: 2026-05-07
 
 **Mode**: per-finding
 **Current finding**: D2 — `alert-groups` family (drifted from "rich shapes" to broader presentation/UX)
-**Current round**: 11 closed (commit `43db5743` code + this commit's docs)
-**Status**: round 11 shipped — typed envelope on list path, custom table codecs with `ColumnWidths`, three bug fixes folded in. Smoke 17/17 passing. Awaiting user direction (more iteration, or snap to /plan-spec).
+**Current round**: 12 (acknowledge — PENDING REFACTOR per PR #597 reconcile), 13 (--open) shipped, 14 (--limit) shipped
+**Status**:
+- 12: `6a87f655` (vanguard) → `110adb57` (refactor — two-shape locked). Live-verified on ops: single ack idempotent, bulk filter (matched:31 succeeded:27 skipped:4 failed:0) sum invariant holds.
+- 15: `1a7ca0b2` — table render fixes (ID width 14→16 since lipgloss `Width()` includes padding, TITLE strip, ellipsis truncation, SEVERITY HTML fallback). `-o wide` not actually broken — narrow-terminal lipgloss compression. UX call open: silent compress vs hint.
+- Combined smoke (rounds 12/13/14/15) dispatched. Doc-edit pass deferred until smoke returns.
+- 13: `30c10421` — `--open` on `alert-groups get`; smoke 7/9 pass (2 fails were stale snapshots of in-flight [12] code, unrelated).
+- 14: `6939baec` — `--limit 50` on `alert-groups list` with cursor-aware hint. perpage=min(limit,100). list-alerts already had `--limit`; data-miner caught the surprise.
+- Pre-existing test failures (4 token-cost) and vendoring lint issue surfaced during [14]; possibly from [12] or rebase. Pending triage.
+- Doc-edit pass for rounds 12/13/14 deferred until [12] refactor decided.
 
 ## Locked shape so far (from shipped D2)
 
