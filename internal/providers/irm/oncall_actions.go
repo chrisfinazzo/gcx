@@ -14,6 +14,33 @@
 //     confirmation prompt in TTY mode (skipped with --yes); agent mode
 //     requires --yes explicitly when target count > 1 (footgun avoidance).
 //   - Neither <id> NOR any filter flag → exit 2 with structured DetailedError.
+//
+// Result-shape contract (locked, two-shape):
+//
+//	Single-target (positional <id> form):
+//	  {
+//	    "action":  "acknowledge",
+//	    "target":  {"alertGroupId": "I..."},
+//	    "changed": true | false              // false = idempotent no-op
+//	  }
+//	Single-target failure path (Option A — stays single-shape):
+//	  {
+//	    "action":  "acknowledge",
+//	    "target":  {"alertGroupId": "I..."},
+//	    "error":   {"code", "message", "suggestion"}
+//	  }
+//
+//	Bulk-by-filter (--filter form):
+//	  {
+//	    "action":  "acknowledge",
+//	    "summary": {"matched", "succeeded", "skipped", "failed"},
+//	    "failures": [{"target": {"alertGroupId"}, "error": {...}}]
+//	  }
+//
+// The two shapes are mutually exclusive — single-target invocations never
+// emit summary/failures; bulk invocations never emit top-level
+// target/changed. `fields[]` (declarative-config writes per PR #597) is
+// OMITTED — ack is a state-machine verb.
 package irm
 
 import (
@@ -34,49 +61,78 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// MutationResult envelope — emitted on stdout (single JSON document).
+// Result envelopes — emitted on stdout (single JSON document).
+//
+// Two distinct shapes, dispatched by single-vs-bulk invocation. See the file
+// header for the locked contract.
 // ---------------------------------------------------------------------------
 
-// MutationResult is the action-verb result envelope per ADR § 7.2 (refined by
-// the vanguard lock — per-target outcome with structured errors instead of
-// the simpler aggregate-only shape). Used by acknowledge / resolve /
-// unresolve / silence / unsilence / unacknowledge.
-type MutationResult struct {
-	Action  string                 `json:"action"`
-	Summary MutationSummary        `json:"summary"`
-	Targets []MutationTargetResult `json:"targets"`
+// irmTarget is the scalar target descriptor used by both shapes. For
+// alert-group action verbs only `alertGroupId` is populated; future
+// IRM-domain verbs (e.g. silence, escalation-chain) may extend this with
+// additional `omitempty` fields without breaking parsers.
+type irmTarget struct {
+	AlertGroupID string `json:"alertGroupId,omitempty"`
 }
 
-// MutationSummary is the aggregate roll-up of per-target outcomes.
+// singleMutationResult is the single-target envelope (PR #597-aligned: scalar
+// Target + top-level Changed). On success/idempotent the `error` field is
+// nil-omitted; on failure `changed` is omitted (zero value with omitempty)
+// and `error` is populated. `fields[]` is intentionally absent — ack is a
+// state-machine verb, not a declarative-config write.
+type singleMutationResult struct {
+	Action  string               `json:"action"`
+	Target  irmTarget            `json:"target"`
+	Changed *bool                `json:"changed,omitempty"`
+	Error   *mutationTargetError `json:"error,omitempty"`
+}
+
+// bulkMutationResult is the bulk-by-filter envelope (issue #264 philosophy:
+// counts for successes/skips, enumerated entries only for failures). Both
+// `summary` and `failures` are always present; `failures` is `[]` (not
+// omitempty) when no targets failed, for predictable agent-side parsing.
+type bulkMutationResult struct {
+	Action   string            `json:"action"`
+	Summary  mutationSummary   `json:"summary"`
+	Failures []mutationFailure `json:"failures"`
+}
+
+// mutationSummary aggregates per-target outcomes.
 //
-//   - Matched: number of targets resolved by ID or filter.
-//   - Changed: number of targets whose state actually changed
-//     (idempotent no-ops are NOT counted; Changed ≤ Matched).
-//   - Errors:  number of targets that failed.
-type MutationSummary struct {
-	Matched int `json:"matched"`
-	Changed int `json:"changed"`
-	Errors  int `json:"errors"`
+// Invariant: matched == succeeded + skipped + failed (always, by construction).
+//   - matched:   targets resolved by filter (or 1 for single-target).
+//   - succeeded: state actually changed this run.
+//   - skipped:   already in target state (idempotent no-op).
+//   - failed:    API call errored.
+type mutationSummary struct {
+	Matched   int `json:"matched"`
+	Succeeded int `json:"succeeded"`
+	Skipped   int `json:"skipped"`
+	Failed    int `json:"failed"`
 }
 
-// MutationTargetResult is the outcome of one target.
-//
-// Changed is false when the action was a no-op (e.g. acknowledge of an
-// already-acknowledged group). Error is nil on success; populated on failure.
-type MutationTargetResult struct {
-	AlertGroupID string               `json:"alertGroupID"`
-	Changed      bool                 `json:"changed"`
-	Error        *MutationTargetError `json:"error"`
+// mutationFailure is one entry in bulkMutationResult.Failures — the target
+// whose action failed and the structured error explaining why. Successes and
+// skips are NOT enumerated (issue #264) — only the count is reported.
+type mutationFailure struct {
+	Target irmTarget           `json:"target"`
+	Error  mutationTargetError `json:"error"`
 }
 
-// MutationTargetError is a structured per-target error. Mirrors the
+// mutationTargetError is a structured per-target error. Mirrors the
 // DetailedError shape but scoped to a single target — global usage / config /
 // auth errors continue to come through the DetailedError envelope on stdout.
-type MutationTargetError struct {
+type mutationTargetError struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	Suggestion string `json:"suggestion,omitempty"`
 }
+
+// boolPtr returns a pointer to b. Used to populate singleMutationResult.Changed
+// with a non-omitempty true/false (so that {…,"changed":false} is preserved
+// for the idempotent-noop path, and the field is omitted only on the failure
+// path where Error is set).
+func boolPtr(b bool) *bool { return &b }
 
 // ---------------------------------------------------------------------------
 // stderr-side: progress events + diagnostic class records (ADR § 8.2).
@@ -131,6 +187,16 @@ func emitHint(stderr io.Writer, summary, command string) {
 		return
 	}
 	fmt.Fprintf(stderr, "hint: %s\n", summary)
+}
+
+// emitTTYSummary writes a one-line TTY-only human summary to stderr after
+// the JSON result has been written to stdout. No-op in agent mode (the
+// JSONL progress + JSON result envelope already cover the agent surface).
+func emitTTYSummary(stderr io.Writer, line string) {
+	if agent.IsAgentMode() {
+		return
+	}
+	fmt.Fprintln(stderr, line)
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +285,7 @@ explicitly when count > 1 (auto-confirm of destructive bulk operations is
 disabled by design).
 
 Idempotent: re-acknowledging an already-acknowledged group reports
-changed:false — not an error.`,
+changed:false (single-target) or summary.skipped++ (bulk) — not an error.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAcknowledge(cmd, args, opts, loader)
@@ -253,13 +319,64 @@ func runAcknowledge(cmd *cobra.Command, args []string, opts *alertGroupActionVer
 		return err
 	}
 
-	// Resolve target list.
-	targets, err := resolveAcknowledgeTargets(ctx, client, args, opts)
+	// Dispatch on shape: single-target (positional <id>) vs bulk-by-filter.
+	if len(args) == 1 {
+		return runAcknowledgeSingle(ctx, client, args[0], stdout, stderr)
+	}
+	return runAcknowledgeBulk(ctx, client, opts, stdin, stdout, stderr)
+}
+
+// runAcknowledgeSingle executes the single-target flow and emits the
+// single-shape envelope on stdout. Failure path stays single-shape (Option A
+// in the design rule): top-level `error` replaces `changed`.
+func runAcknowledgeSingle(ctx context.Context, client OnCallAPI, id string, stdout, stderr io.Writer) error {
+	tgt, err := resolveSingleTarget(ctx, client, id)
 	if err != nil {
 		return err
 	}
 
-	// Confirm if bulk + interactive.
+	result := executeAcknowledgeOne(ctx, client, tgt, stderr)
+
+	// Build single-shape envelope.
+	env := singleMutationResult{
+		Action: "acknowledge",
+		Target: irmTarget{AlertGroupID: result.id},
+	}
+	if result.err != nil {
+		env.Error = result.err
+	} else {
+		env.Changed = boolPtr(result.changed)
+	}
+
+	if werr := writeJSON(stdout, env); werr != nil {
+		return werr
+	}
+
+	// TTY-only one-liner + post-result hint on success.
+	if result.err != nil {
+		emitTTYSummary(stderr, fmt.Sprintf("acknowledge %q: failed (%s)", result.id, result.err.Code))
+		exitFuncForTesting(1)
+		return nil
+	}
+
+	if result.changed {
+		emitTTYSummary(stderr, fmt.Sprintf("acknowledge %q: done", result.id))
+	} else {
+		emitTTYSummary(stderr, fmt.Sprintf("acknowledge %q: no changes", result.id))
+	}
+	emitHint(stderr, "See live alerts", "gcx irm oncall alert-groups get "+result.id)
+	return nil
+}
+
+// runAcknowledgeBulk executes the bulk-by-filter flow and emits the
+// bulk-shape envelope on stdout.
+func runAcknowledgeBulk(ctx context.Context, client OnCallAPI, opts *alertGroupActionVerbOpts, stdin io.Reader, stdout, stderr io.Writer) error {
+	targets, err := resolveBulkTargets(ctx, client, opts)
+	if err != nil {
+		return err
+	}
+
+	// Confirm if the matched set exceeds 1.
 	if len(targets) > 1 {
 		if !opts.Yes {
 			if agent.IsAgentMode() {
@@ -275,36 +392,52 @@ func runAcknowledge(cmd *cobra.Command, args []string, opts *alertGroupActionVer
 		}
 	}
 
-	// Execute per-target acknowledge with idempotency tracking.
-	results := executeAcknowledge(ctx, client, targets, stderr)
+	results := make([]ackOutcome, 0, len(targets))
+	for _, tgt := range targets {
+		results = append(results, executeAcknowledgeOne(ctx, client, tgt, stderr))
+	}
 
-	// Roll up summary.
-	summary := MutationSummary{Matched: len(results)}
+	summary := mutationSummary{Matched: len(results)}
+	failures := []mutationFailure{} // never nil — predictable parsing.
 	for _, r := range results {
-		if r.Error != nil {
-			summary.Errors++
-		} else if r.Changed {
-			summary.Changed++
+		switch {
+		case r.err != nil:
+			summary.Failed++
+			failures = append(failures, mutationFailure{
+				Target: irmTarget{AlertGroupID: r.id},
+				Error:  *r.err,
+			})
+		case r.changed:
+			summary.Succeeded++
+		default:
+			summary.Skipped++
 		}
 	}
 
-	envelope := MutationResult{
-		Action:  "acknowledge",
-		Summary: summary,
-		Targets: results,
+	env := bulkMutationResult{
+		Action:   "acknowledge",
+		Summary:  summary,
+		Failures: failures,
 	}
-	if err := writeMutationResult(stdout, envelope); err != nil {
-		return err
+	if werr := writeJSON(stdout, env); werr != nil {
+		return werr
 	}
 
-	// Post-result hint.
-	emitAcknowledgeHints(stderr, results)
+	// TTY-only one-liner.
+	emitTTYSummary(stderr, fmt.Sprintf(
+		"acknowledge: %d/%d succeeded (%d already-acked, %d failed)",
+		summary.Succeeded, summary.Matched, summary.Skipped, summary.Failed,
+	))
 
-	// Exit code: 1 if any target failed. We've already written the result
-	// envelope to stdout — returning an error from RunE would cause main.go
-	// to write a second JSON document, breaking the "exactly one document on
-	// stdout" contract. exitFuncForTesting allows tests to inject a fake.
-	if summary.Errors > 0 {
+	// Post-result hint — pivot on the first non-failed target.
+	for _, r := range results {
+		if r.err == nil {
+			emitHint(stderr, "See live alerts", "gcx irm oncall alert-groups get "+r.id)
+			break
+		}
+	}
+
+	if summary.Failed > 0 {
 		exitFuncForTesting(1)
 	}
 	return nil
@@ -327,23 +460,19 @@ type acknowledgeTarget struct {
 	State string // "firing", "acknowledged", "resolved", "silenced", or "" if unknown.
 }
 
-// resolveAcknowledgeTargets returns the deduplicated, sorted list of targets
-// to operate on, plus their current state (when known). Single-target path
-// does one GET; bulk path uses the list response.
-func resolveAcknowledgeTargets(ctx context.Context, client OnCallAPI, args []string, opts *alertGroupActionVerbOpts) ([]acknowledgeTarget, error) {
-	if len(args) == 1 {
-		id := args[0]
-		// Best-effort fetch state for idempotency. Failure to fetch state is
-		// non-fatal — we proceed with state-unknown and let the POST be
-		// authoritative.
-		ag, err := client.GetAlertGroup(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("fetch alert group %q: %w", id, err)
-		}
-		return []acknowledgeTarget{{ID: id, State: alertGroupStatusString(ag)}}, nil
+// resolveSingleTarget fetches the current state of one alert group for
+// idempotency-aware execution.
+func resolveSingleTarget(ctx context.Context, client OnCallAPI, id string) (acknowledgeTarget, error) {
+	ag, err := client.GetAlertGroup(ctx, id)
+	if err != nil {
+		return acknowledgeTarget{}, fmt.Errorf("fetch alert group %q: %w", id, err)
 	}
+	return acknowledgeTarget{ID: id, State: alertGroupStatusString(ag)}, nil
+}
 
-	// Bulk-by-filter path: build filter set the same way `alert-groups list` does.
+// resolveBulkTargets returns the deduplicated, sorted list of targets to
+// operate on (bulk-by-filter path), plus their current state.
+func resolveBulkTargets(ctx context.Context, client OnCallAPI, opts *alertGroupActionVerbOpts) ([]acknowledgeTarget, error) {
 	filters, err := opts.toListFilters()
 	if err != nil {
 		return nil, err
@@ -441,46 +570,45 @@ func alertGroupStatusString(ag *AlertGroup) string {
 // Per-target execution.
 // ---------------------------------------------------------------------------
 
-// executeAcknowledge applies the acknowledge action to each target with
-// idempotent change detection. Errors are captured per-target and reported in
-// the MutationResult; they do NOT short-circuit the loop.
-func executeAcknowledge(ctx context.Context, client OnCallAPI, targets []acknowledgeTarget, stderr io.Writer) []MutationTargetResult {
-	out := make([]MutationTargetResult, 0, len(targets))
-	for _, tgt := range targets {
-		// Idempotent no-op: state already "acknowledged" → skip POST.
-		if tgt.State == "acknowledged" {
-			emitProgressLine(stderr, "Already acknowledged", tgt.ID, "noop")
-			out = append(out, MutationTargetResult{AlertGroupID: tgt.ID, Changed: false})
-			continue
-		}
+// ackOutcome is the internal per-target outcome: either changed, idempotent
+// (changed=false, err=nil), or failed (err != nil).
+type ackOutcome struct {
+	id      string
+	changed bool
+	err     *mutationTargetError
+}
 
-		emitProgressLine(stderr, "Acknowledging", tgt.ID, "acknowledging")
-		err := client.AcknowledgeAlertGroup(ctx, tgt.ID)
-		if err != nil {
-			out = append(out, MutationTargetResult{
-				AlertGroupID: tgt.ID,
-				Changed:      false,
-				Error: &MutationTargetError{
-					Code:       "acknowledge_failed",
-					Message:    err.Error(),
-					Suggestion: fmt.Sprintf("verify the alert group exists: gcx irm oncall alert-groups get %s", tgt.ID),
-				},
-			})
-			continue
-		}
-		emitProgressLine(stderr, "Acknowledged", tgt.ID, "acknowledged")
-		out = append(out, MutationTargetResult{AlertGroupID: tgt.ID, Changed: true})
+// executeAcknowledgeOne applies the acknowledge action to one target with
+// idempotent change detection.
+func executeAcknowledgeOne(ctx context.Context, client OnCallAPI, tgt acknowledgeTarget, stderr io.Writer) ackOutcome {
+	// Idempotent no-op: state already "acknowledged" → skip POST.
+	if tgt.State == "acknowledged" {
+		emitProgressLine(stderr, "Already acknowledged", tgt.ID, "noop")
+		return ackOutcome{id: tgt.ID, changed: false}
 	}
-	return out
+
+	emitProgressLine(stderr, "Acknowledging", tgt.ID, "acknowledging")
+	if err := client.AcknowledgeAlertGroup(ctx, tgt.ID); err != nil {
+		return ackOutcome{
+			id: tgt.ID,
+			err: &mutationTargetError{
+				Code:       "acknowledge_failed",
+				Message:    err.Error(),
+				Suggestion: fmt.Sprintf("verify the alert group exists: gcx irm oncall alert-groups get %s", tgt.ID),
+			},
+		}
+	}
+	emitProgressLine(stderr, "Acknowledged", tgt.ID, "acknowledged")
+	return ackOutcome{id: tgt.ID, changed: true}
 }
 
 // ---------------------------------------------------------------------------
 // Output helpers.
 // ---------------------------------------------------------------------------
 
-// writeMutationResult marshals the envelope and writes it to stdout as a
-// single JSON document terminated by a newline.
-func writeMutationResult(stdout io.Writer, env MutationResult) error {
+// writeJSON marshals env and writes it to stdout as a single JSON document
+// terminated by a newline.
+func writeJSON(stdout io.Writer, env any) error {
 	data, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal mutation result: %w", err)
@@ -489,33 +617,6 @@ func writeMutationResult(stdout io.Writer, env MutationResult) error {
 		return err
 	}
 	return nil
-}
-
-// emitAcknowledgeHints emits exactly one post-result hint per target on the
-// success / idempotent path: how to view live state. On errors-only no hint
-// is emitted (errors carry their own per-target suggestions; ADR § 8.4).
-func emitAcknowledgeHints(stderr io.Writer, results []MutationTargetResult) {
-	// Pick a representative target for the hint: prefer a successfully-changed
-	// one, fall back to any with no error.
-	var pivot string
-	for _, r := range results {
-		if r.Error == nil && r.Changed {
-			pivot = r.AlertGroupID
-			break
-		}
-	}
-	if pivot == "" {
-		for _, r := range results {
-			if r.Error == nil {
-				pivot = r.AlertGroupID
-				break
-			}
-		}
-	}
-	if pivot == "" {
-		return
-	}
-	emitHint(stderr, "See live alerts", "gcx irm oncall alert-groups get "+pivot)
 }
 
 // ---------------------------------------------------------------------------

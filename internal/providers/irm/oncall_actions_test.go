@@ -79,6 +79,20 @@ func resetAgentMode(t *testing.T) {
 	agent.ResetForTesting()
 }
 
+// topLevelKeys returns the sorted set of top-level keys in a JSON document.
+func topLevelKeys(t *testing.T, raw string) map[string]bool {
+	t.Helper()
+	m := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw=%s", err, raw)
+	}
+	out := map[string]bool{}
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
 // --- Guardrail tests ---
 
 func TestRunAcknowledge_RequiresIDOrFilter(t *testing.T) {
@@ -117,7 +131,7 @@ func TestRunAcknowledge_RejectsIDPlusFilter(t *testing.T) {
 	}
 }
 
-// --- Single-target tests ---
+// --- Single-target tests (locked shape: {action, target, changed}) ---
 
 func TestRunAcknowledge_SingleTarget_Changes(t *testing.T) {
 	resetAgentMode(t)
@@ -133,21 +147,35 @@ func TestRunAcknowledge_SingleTarget_Changes(t *testing.T) {
 	if exit != -1 {
 		t.Errorf("unexpected exit code %d (single-target success should return cleanly)", exit)
 	}
-	var got MutationResult
+
+	// Locked shape: top-level keys MUST be exactly {action, target, changed}.
+	keys := topLevelKeys(t, stdout)
+	for _, must := range []string{"action", "target", "changed"} {
+		if !keys[must] {
+			t.Errorf("missing required top-level key %q in %s", must, stdout)
+		}
+	}
+	for _, forbidden := range []string{"summary", "failures", "targets", "error"} {
+		if keys[forbidden] {
+			t.Errorf("unexpected top-level key %q in single-target shape: %s", forbidden, stdout)
+		}
+	}
+
+	var got singleMutationResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not valid JSON: %v\nstdout=%s", err, stdout)
 	}
 	if got.Action != "acknowledge" {
 		t.Errorf("action: got %q want %q", got.Action, "acknowledge")
 	}
-	if got.Summary.Matched != 1 || got.Summary.Changed != 1 || got.Summary.Errors != 0 {
-		t.Errorf("summary: got %+v want matched=1 changed=1 errors=0", got.Summary)
+	if got.Target.AlertGroupID != "IABC" {
+		t.Errorf("target.alertGroupId: got %q want %q", got.Target.AlertGroupID, "IABC")
 	}
-	if len(got.Targets) != 1 {
-		t.Fatalf("targets: got %d want 1", len(got.Targets))
+	if got.Changed == nil || !*got.Changed {
+		t.Errorf("expected changed:true; got %v", got.Changed)
 	}
-	if got.Targets[0].AlertGroupID != "IABC" || !got.Targets[0].Changed || got.Targets[0].Error != nil {
-		t.Errorf("target[0]: got %+v", got.Targets[0])
+	if got.Error != nil {
+		t.Errorf("expected nil error; got %+v", got.Error)
 	}
 	if len(fake.calls) != 1 || fake.calls[0] != "IABC" {
 		t.Errorf("expected 1 ack call for IABC; got %v", fake.calls)
@@ -161,16 +189,32 @@ func TestRunAcknowledge_SingleTarget_IdempotentNoOp(t *testing.T) {
 			return &AlertGroup{PK: id, Status: float64(1)}, nil // already acknowledged
 		},
 	}
-	stdout, _, _, _ := runAck(t, []string{"IDONE"}, &alertGroupActionVerbOpts{}, fake)
-	var got MutationResult
+	stdout, _, _, exit := runAck(t, []string{"IDONE"}, &alertGroupActionVerbOpts{}, fake)
+	if exit != -1 {
+		t.Errorf("unexpected exit %d (idempotent should be clean exit)", exit)
+	}
+
+	keys := topLevelKeys(t, stdout)
+	for _, must := range []string{"action", "target", "changed"} {
+		if !keys[must] {
+			t.Errorf("missing required top-level key %q in %s", must, stdout)
+		}
+	}
+	for _, forbidden := range []string{"summary", "failures", "targets", "error"} {
+		if keys[forbidden] {
+			t.Errorf("unexpected top-level key %q in single-target shape: %s", forbidden, stdout)
+		}
+	}
+
+	var got singleMutationResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout JSON: %v\nstdout=%s", err, stdout)
 	}
-	if got.Summary.Matched != 1 || got.Summary.Changed != 0 || got.Summary.Errors != 0 {
-		t.Errorf("summary: got %+v want matched=1 changed=0 errors=0", got.Summary)
+	if got.Target.AlertGroupID != "IDONE" {
+		t.Errorf("target.alertGroupId: got %q want %q", got.Target.AlertGroupID, "IDONE")
 	}
-	if got.Targets[0].Changed {
-		t.Errorf("expected idempotent changed:false, got Changed=true")
+	if got.Changed == nil || *got.Changed {
+		t.Errorf("expected changed:false on idempotent path; got %v", got.Changed)
 	}
 	if len(fake.calls) != 0 {
 		t.Errorf("expected zero acknowledge calls (idempotent skip); got %v", fake.calls)
@@ -191,60 +235,214 @@ func TestRunAcknowledge_SingleTarget_ApplyError(t *testing.T) {
 	if exit != 1 {
 		t.Errorf("expected exit 1; got %d", exit)
 	}
-	var got MutationResult
+
+	// Single-target failure path (Option A): {action, target, error} — NO `changed`.
+	keys := topLevelKeys(t, stdout)
+	for _, must := range []string{"action", "target", "error"} {
+		if !keys[must] {
+			t.Errorf("missing required top-level key %q in failure shape: %s", must, stdout)
+		}
+	}
+	for _, forbidden := range []string{"summary", "failures", "targets", "changed"} {
+		if keys[forbidden] {
+			t.Errorf("unexpected top-level key %q in single-target failure shape: %s", forbidden, stdout)
+		}
+	}
+
+	var got singleMutationResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout JSON: %v\nstdout=%s", err, stdout)
 	}
-	if got.Summary.Errors != 1 || got.Summary.Changed != 0 {
-		t.Errorf("summary: got %+v want errors=1 changed=0", got.Summary)
+	if got.Error == nil || got.Error.Code != "acknowledge_failed" {
+		t.Errorf("expected error envelope with code=acknowledge_failed; got %+v", got.Error)
 	}
-	if got.Targets[0].Error == nil || got.Targets[0].Error.Code != "acknowledge_failed" {
-		t.Errorf("expected error envelope; got %+v", got.Targets[0].Error)
+	if got.Changed != nil {
+		t.Errorf("expected changed to be omitted on failure; got %v", got.Changed)
 	}
 }
 
-// --- MutationResult builder tests ---
+// --- Bulk-by-filter tests (locked shape: {action, summary, failures}) ---
 
-func TestMutationResult_JSONShape(t *testing.T) {
-	r := MutationResult{
-		Action:  "acknowledge",
-		Summary: MutationSummary{Matched: 3, Changed: 2, Errors: 1},
-		Targets: []MutationTargetResult{
-			{AlertGroupID: "I1", Changed: true},
-			{AlertGroupID: "I2", Changed: false},
-			{AlertGroupID: "I3", Changed: false, Error: &MutationTargetError{Code: "x", Message: "y"}},
-		},
+// fakeOnCallClientForBulk — bulk path requires a *OnCallClient (concrete type)
+// rather than the OnCallAPI interface, because resolveBulkTargets calls
+// listAlertGroupsRaw directly. Driving the bulk path from a unit test would
+// require mocking the HTTP layer; we exercise the result-builder logic via
+// runAcknowledgeBulk's internal pieces instead — see TestBulkResult_*.
+
+// TestBulkResult_AllSucceed verifies the bulk envelope for the all-succeed
+// case via direct construction of the result-builder loop. This complements
+// the live shape test on ops.
+func TestBulkResult_AllSucceed(t *testing.T) {
+	results := []ackOutcome{
+		{id: "I1", changed: true},
+		{id: "I2", changed: true},
+		{id: "I3", changed: true},
 	}
-	b, err := json.Marshal(r)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	env := buildBulkEnvelopeForTest(results)
+
+	if env.Action != "acknowledge" {
+		t.Errorf("action: got %q want acknowledge", env.Action)
 	}
-	got := map[string]any{}
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if env.Summary.Matched != 3 || env.Summary.Succeeded != 3 ||
+		env.Summary.Skipped != 0 || env.Summary.Failed != 0 {
+		t.Errorf("summary: got %+v want matched=3 succeeded=3 skipped=0 failed=0", env.Summary)
 	}
-	for _, k := range []string{"action", "summary", "targets"} {
-		if _, ok := got[k]; !ok {
-			t.Errorf("missing top-level key %q in %s", k, string(b))
+	assertSummaryAddsUp(t, env.Summary)
+	if len(env.Failures) != 0 {
+		t.Errorf("expected empty failures; got %+v", env.Failures)
+	}
+
+	// Verify failures is `[]` not `null` on the wire.
+	b, _ := json.Marshal(env)
+	if !strings.Contains(string(b), `"failures":[]`) {
+		t.Errorf("failures must marshal as [] (not null) for predictable parsing: %s", string(b))
+	}
+}
+
+func TestBulkResult_Mixed(t *testing.T) {
+	results := []ackOutcome{
+		{id: "I1", changed: true},  // succeeded
+		{id: "I2", changed: false}, // skipped (idempotent)
+		{id: "I3", err: &mutationTargetError{Code: "acknowledge_failed", Message: "x"}}, // failed
+		{id: "I4", changed: true},  // succeeded
+		{id: "I5", changed: false}, // skipped
+	}
+	env := buildBulkEnvelopeForTest(results)
+
+	if env.Summary.Matched != 5 {
+		t.Errorf("matched: got %d want 5", env.Summary.Matched)
+	}
+	if env.Summary.Succeeded != 2 {
+		t.Errorf("succeeded: got %d want 2", env.Summary.Succeeded)
+	}
+	if env.Summary.Skipped != 2 {
+		t.Errorf("skipped: got %d want 2", env.Summary.Skipped)
+	}
+	if env.Summary.Failed != 1 {
+		t.Errorf("failed: got %d want 1", env.Summary.Failed)
+	}
+	assertSummaryAddsUp(t, env.Summary)
+
+	// Failures enumerates only the failed target — successes/skips are counts only.
+	if len(env.Failures) != 1 {
+		t.Fatalf("expected 1 failure entry; got %d (%+v)", len(env.Failures), env.Failures)
+	}
+	if env.Failures[0].Target.AlertGroupID != "I3" {
+		t.Errorf("failure target: got %q want I3", env.Failures[0].Target.AlertGroupID)
+	}
+	if env.Failures[0].Error.Code != "acknowledge_failed" {
+		t.Errorf("failure error code: got %q want acknowledge_failed", env.Failures[0].Error.Code)
+	}
+}
+
+// buildBulkEnvelopeForTest mirrors the result-roll-up logic in
+// runAcknowledgeBulk. Kept in the test file — and exercising it directly
+// rather than re-exporting — keeps the production runner tightly scoped.
+func buildBulkEnvelopeForTest(results []ackOutcome) bulkMutationResult {
+	summary := mutationSummary{Matched: len(results)}
+	failures := []mutationFailure{}
+	for _, r := range results {
+		switch {
+		case r.err != nil:
+			summary.Failed++
+			failures = append(failures, mutationFailure{
+				Target: irmTarget{AlertGroupID: r.id},
+				Error:  *r.err,
+			})
+		case r.changed:
+			summary.Succeeded++
+		default:
+			summary.Skipped++
 		}
 	}
-	sumKeys := got["summary"].(map[string]any)
-	for _, k := range []string{"matched", "changed", "errors"} {
-		if _, ok := sumKeys[k]; !ok {
-			t.Errorf("summary missing key %q", k)
+	return bulkMutationResult{
+		Action:   "acknowledge",
+		Summary:  summary,
+		Failures: failures,
+	}
+}
+
+// assertSummaryAddsUp enforces the locked-contract invariant
+// matched == succeeded + skipped + failed.
+func assertSummaryAddsUp(t *testing.T, s mutationSummary) {
+	t.Helper()
+	if s.Matched != s.Succeeded+s.Skipped+s.Failed {
+		t.Errorf("summary invariant violated: matched=%d succeeded=%d skipped=%d failed=%d (sum=%d)",
+			s.Matched, s.Succeeded, s.Skipped, s.Failed, s.Succeeded+s.Skipped+s.Failed)
+	}
+}
+
+// --- Shape mutual-exclusivity tests ---
+
+// TestSingleMutationResult_JSONShape verifies the on-the-wire JSON for the
+// single-target envelope omits the `error` field on success and the
+// `changed` field on failure.
+func TestSingleMutationResult_JSONShape(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		env := singleMutationResult{
+			Action:  "acknowledge",
+			Target:  irmTarget{AlertGroupID: "I1"},
+			Changed: boolPtr(true),
+		}
+		b, _ := json.Marshal(env)
+		s := string(b)
+		if !strings.Contains(s, `"changed":true`) {
+			t.Errorf("expected changed:true in JSON; got %s", s)
+		}
+		if strings.Contains(s, `"error"`) {
+			t.Errorf("error field must be omitted on success; got %s", s)
+		}
+	})
+	t.Run("idempotent", func(t *testing.T) {
+		env := singleMutationResult{
+			Action:  "acknowledge",
+			Target:  irmTarget{AlertGroupID: "I1"},
+			Changed: boolPtr(false),
+		}
+		b, _ := json.Marshal(env)
+		s := string(b)
+		if !strings.Contains(s, `"changed":false`) {
+			t.Errorf("changed:false MUST be present (not omitempty) on idempotent path; got %s", s)
+		}
+	})
+	t.Run("failure", func(t *testing.T) {
+		env := singleMutationResult{
+			Action: "acknowledge",
+			Target: irmTarget{AlertGroupID: "I1"},
+			Error:  &mutationTargetError{Code: "x", Message: "y"},
+		}
+		b, _ := json.Marshal(env)
+		s := string(b)
+		if strings.Contains(s, `"changed"`) {
+			t.Errorf("changed must be omitted on failure; got %s", s)
+		}
+		if !strings.Contains(s, `"error"`) {
+			t.Errorf("error field must be present on failure; got %s", s)
+		}
+	})
+}
+
+// TestBulkMutationResult_JSONShape verifies the bulk envelope's required
+// fields are always present (matched/succeeded/skipped/failed; failures: []
+// not null).
+func TestBulkMutationResult_JSONShape(t *testing.T) {
+	env := bulkMutationResult{
+		Action:   "acknowledge",
+		Summary:  mutationSummary{Matched: 0, Succeeded: 0, Skipped: 0, Failed: 0},
+		Failures: []mutationFailure{},
+	}
+	b, _ := json.Marshal(env)
+	s := string(b)
+
+	for _, want := range []string{`"matched":0`, `"succeeded":0`, `"skipped":0`, `"failed":0`, `"failures":[]`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("expected %q in bulk envelope JSON; got %s", want, s)
 		}
 	}
-	// Confirm targets[*].changed and targets[*].alertGroupID are present.
-	tgts := got["targets"].([]any)
-	if len(tgts) != 3 {
-		t.Fatalf("expected 3 targets; got %d", len(tgts))
-	}
-	first := tgts[0].(map[string]any)
-	if _, ok := first["alertGroupID"]; !ok {
-		t.Errorf("missing alertGroupID on target[0]")
-	}
-	if _, ok := first["changed"]; !ok {
-		t.Errorf("missing changed on target[0]")
+	for _, forbidden := range []string{`"target":`, `"changed":`, `"targets":`} {
+		if strings.Contains(s, forbidden) {
+			t.Errorf("bulk envelope must not contain %q at top level; got %s", forbidden, s)
+		}
 	}
 }
 

@@ -21,19 +21,21 @@ func init() {
 	registerSpikeBuilder(buildSpikeClientDemoCmd)
 }
 
-// mutationResult is the D7 MutationResult envelope emitted on stdout.
-type mutationResult struct {
-	Action  string          `json:"action"`
-	Target  mutationTarget  `json:"target"`
-	Changed bool            `json:"changed"`
-	Summary mutationSummary `json:"summary"`
+// spikeMutationResult is the D7 MutationResult envelope emitted on stdout by
+// the spike demo command. Renamed (from `mutationResult`) to avoid colliding
+// with the locked production types in oncall_actions.go.
+type spikeMutationResult struct {
+	Action  string               `json:"action"`
+	Target  spikeMutationTarget  `json:"target"`
+	Changed bool                 `json:"changed"`
+	Summary spikeMutationSummary `json:"summary"`
 }
 
-type mutationTarget struct {
+type spikeMutationTarget struct {
 	AlertGroupIDs []string `json:"alertGroupIds"`
 }
 
-type mutationSummary struct {
+type spikeMutationSummary struct {
 	Matched   int  `json:"matched"`
 	Succeeded int  `json:"succeeded"`
 	Failed    int  `json:"failed"`
@@ -282,11 +284,11 @@ func buildSpikeClientDemoCmd(loader OnCallConfigLoader) *cobra.Command {
 				allIDs = append(allIDs, ag.PK)
 			}
 
-			result := mutationResult{
+			result := spikeMutationResult{
 				Action:  "acknowledge",
-				Target:  mutationTarget{AlertGroupIDs: allIDs},
+				Target:  spikeMutationTarget{AlertGroupIDs: allIDs},
 				Changed: false, // dry-run, nothing mutated
-				Summary: mutationSummary{
+				Summary: spikeMutationSummary{
 					Matched:   len(matched),
 					Succeeded: 0,
 					Failed:    0,
