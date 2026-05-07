@@ -152,6 +152,40 @@ A re-look at the verb landed on a removal. The `AlertRawSerializer` endpoint omi
 
 Considered collapsing `acknowledge`/`unacknowledge`, `resolve`/`unresolve`, `silence`/`unsilence` into three verbs with a `--undo` flag. Rejected. (a) `silence` is a TTL'd silence record — `silence --for=1h` and a hypothetical `silence --undo` would share a help block with disjoint flag sets, and the resource model becomes implicit rather than visible. (b) Agents and humans both read `unacknowledge` faster than `acknowledge --undo`. (c) Verb count is not the right thing to minimise — each of the six is a real domain action, not a flag toggle. kubectl precedent (`cordon`/`uncordon`, `suspend`/`resume`) supports the keep-separate shape. ADR § 7.1 already lists the six verbs explicitly, so no ADR text edit was required.
 
+### 11. Round 11 — custom table codecs + typed envelope on list path
+
+The `alert-groups` family had three latent issues round 11 closed out:
+
+1. **`alert-groups list` YAML/JSON keys were alphabetical** while `get` and `list-alerts` were struct-declared. The d2-implementation log had blamed `unstructured.Unstructured`-for-table-codec-compat. The actual cause turned out to be a missing `orderedYAMLCodec` registration on `alertGroupListOpts`. Registered now; the unstructured path was lifted out as a side effect of the typed codec rework.
+2. **`list-alerts -o table` was advertised in help but errored at runtime** with `Invalid data type for table codec, expected []unstructured.Unstructured` because list-alerts emits typed envelopes, not unstructured maps. Fixed by introducing a typed `alertTableCodec`.
+3. **`alert-groups get -o, --output` help listed `yaml` twice** — duplicate registration drift. Fixed by a one-line dedupe in `internal/output/format.go::allowedCodecs()` (out-of-package fix, surfaced explicitly because the duplication couldn't be resolved from inside the irm package without intercepting `BindFlags`).
+
+The shape we landed on for table/wide column sets follows the `recommendationTableCodec` pattern at `internal/providers/traces/adaptive/commands.go:110` and uses the `style.TableBuilder.ColumnWidths([]int)` API introduced by PR #610 (`feat(traces): render trace tree as table for traces get`):
+
+```yaml
+# alert-groups list -o table (TTY default)
+columns: [ID, TITLE, SEVERITY, STATE, TEAM, STARTED]
+column_widths: [14, 0, 10, 14, 0, 12]   # 0 = flexible
+
+# alert-groups list -o wide
+columns: [ID, TITLE, SEVERITY, STATE, TEAM, INTEGRATION, TARGET.CLUSTER, TARGET.SERVICE, ALERTS, LINKS.SLO.NAME, STARTED]
+column_widths: [14, 0, 10, 14, 0, 0, 0, 0, 8, 0, 12]
+
+# alert-groups list-alerts -o table
+columns: [NAME, STATE, SEVERITY, TARGET.SERVICE, STARTED]
+column_widths: [14, 14, 10, 0, 12]
+
+# alert-groups list-alerts -o wide
+columns: [NAME, STATE, SEVERITY, TARGET.CLUSTER, TARGET.SERVICE, LINKS.ALERT.RULE.UID, LINKS.DASHBOARD.UID, LINKS.ALERT.INSTANCE.SILENCEURL, STARTED]
+column_widths: [14, 14, 10, 0, 0, 14, 14, 0, 12]
+```
+
+Column ordering follows reading order (`what-is-it → human-label → severity → state → who-owns → when`). Predictable-width columns (PK IDs, severity, state, age) get fixed widths; long / variable-width columns (TITLE, TEAM, INTEGRATION, TARGET.*, SLO.NAME) stay flexible so they expand into terminal width without forcing TITLE to a truncated mid-width.
+
+Codec registration: `alertGroupTableCodec` and `alertTableCodec` are registered for both `table` and `wide` formats on the respective commands' `IO` options. SA-token fallback paths (`listAlertGroupsLegacy`, list-alerts public-API) also build typed envelopes now — fields stay empty (`omitempty`) since the public API doesn't return `raw_request_data`.
+
+Commit `43db5743`; smoke 17/17 passing across diversity (alert-groups list/get/list-alerts × default/wide/yaml/json, three integration shapes, slim/include-raw paths, sibling-provider help-text safety).
+
 ## What landed
 
 ### Code
@@ -161,6 +195,9 @@ Considered collapsing `acknowledge`/`unacknowledge`, `resolve`/`unresolve`, `sil
 - **`internal/providers/irm/oncall_rich_client.go`** (new) — `*OnCallClient.GetAlertGroupRich`, `GetAlertRich`, `listAlertIDs`, `resolveTeams` (lazy per-client cache), `buildAlertGroupRich`, `buildAlertRich`, `listAlertGroupRichFromBytes`.
 - **`internal/providers/irm/oncall_commands_extra.go`** — added `orderedYAMLCodec`, envelope types (`k8sMetadata`, `alertGroupEnvelope`, `alertEnvelope`), converters (`alertGroupRichToEnvelope`, `alertRichToEnvelope`), `slimAlertEnvelope`. Rewrote `alert-groups get` and `list-alerts` commands. Kept `alertGroupRichToUnstructured` / `alertRichToUnstructured` for legacy paths.
 - **`internal/providers/irm/oncall_commands.go`** — rewrote `alerts get` (round 1–8) and then removed it along with the empty `alerts` cobra parent group (round 9, commit `c3e978ab`).
+- **`internal/providers/irm/oncall_commands_extra.go`** (round 11) — replaced `alertGroupTableCodec`/`alertTableCodec` unstructured-consuming bodies with typed envelope readers; added `formatRelativeAge` helper for STARTED column; registered `orderedYAMLCodec` on `alertGroupListOpts` (was missing — root cause of the alphabetical-YAML-on-list issue); deleted dead helpers `alertGroupRichToUnstructured`, `alertRichToUnstructured`, `slimAlertObject`.
+- **`internal/providers/irm/oncall_commands.go`** (round 11) — list path lifted off `unstructured.Unstructured` onto typed envelope; SA-token fallback paths build typed envelopes too.
+- **`internal/output/format.go`** (round 11) — one-line dedupe in `allowedCodecs()` so a custom codec keyed on a builtin name (e.g. `"yaml"`) doesn't appear twice in `-o, --output` help.
 
 ### ADR § 2
 
@@ -187,6 +224,14 @@ gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 1
 
 gcx --context=ops irm oncall alert-groups list --max-age 24h -o table       # table codec still works
 gcx --context=ops irm oncall spike d2 IWDIPP8VLKENJ                          # spike untouched
+
+# round 11 additions
+gcx --context=ops irm oncall alert-groups list --max-age 24h -o table          # 6 cols, ID|TITLE|SEVERITY|STATE|TEAM|STARTED
+gcx --context=ops irm oncall alert-groups list --max-age 24h -o wide           # 11 cols incl. TARGET.*, ALERTS, LINKS.SLO.NAME, INTEGRATION
+gcx --context=ops irm oncall alert-groups list --max-age 24h -o yaml | head -25  # struct-declared order under status (was alphabetical)
+gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 3 -o table  # 5 cols (was broken)
+gcx --context=ops irm oncall alert-groups list-alerts IWDIPP8VLKENJ --limit 3 -o wide   # 9 cols incl. RULE.UID, DASHBOARD.UID, SILENCEURL
+gcx --context=ops irm oncall alert-groups get --help | grep -A2 "output"        # yaml listed once (was twice)
 ```
 
 ## Open / deferred
@@ -199,7 +244,7 @@ gcx --context=ops irm oncall spike d2 IWDIPP8VLKENJ                          # s
 | `render_for_web` extraction takes only `.title`, ignores `message`/`image_url`/`source_link` | Matches locked design; reconsider if a use case surfaces |
 | Severity falls back to `groupLabels.severity` (defensible addition not in original spec) | Intentional; documented in code |
 | Multi-entry `payload.alerts[]` lose per-entry distinguishing data in promoted view | Caveat documented in ADR § 2.2; `--include-raw` reveals the array without re-fetch |
-| YAML/JSON ordering on **list** outputs | Still alphabetical (list path keeps `unstructured.Unstructured` for table-codec compatibility); fix if a user complaint surfaces |
+| Off-package edit to `internal/output/format.go::allowedCodecs()` | One-line dedupe shipped in round 11 to fix `yaml`-twice in help. Affects all providers that register a custom codec on a builtin name; behaviour-neutral (lookup unchanged), but worth flagging for future codec-registry work |
 
 ## How to re-open D2
 
@@ -209,3 +254,4 @@ If something needs re-litigating later, the entry points are:
 2. **Reshape an existing block**: edit the type in `oncalltypes/rich.go`. The envelope conversion (`alertGroupRichToEnvelope` / `alertRichToEnvelope`) auto-picks up the new shape. Update ADR § 2.1 / § 2.2 YAML examples.
 3. **Adjust default visibility** (e.g. show `raw` by default): flip the default of `--include-raw` in the three command opts setup functions. Update ADR § 2.6.
 4. **Restore field ordering elsewhere** (e.g. on `alert-groups list`): convert that command's emission path to use a typed envelope + `orderedYAMLCodec`. Will require either keeping unstructured for the table codec via a second branch, or porting the table codec to read from envelope structs.
+5. **Adjust column choice or width on a table view**: edit the `headers`/`rows` slice and `colWidths` argument inside `alertGroupTableCodec.Encode` (or `alertTableCodec.Encode`) in `internal/providers/irm/oncall_commands_extra.go`. The list/wide column set is the only place changing — there's no separate registry to update. To swap a row-builder helper, search for `r.format` calls inside `Encode`. Pattern reference: `internal/providers/traces/adaptive/commands.go:110` (`recommendationTableCodec`) and `internal/query/tempo/formatter.go:343` (`formatTrace` — the original `ColumnWidths` consumer).
