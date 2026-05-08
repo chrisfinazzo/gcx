@@ -9,9 +9,9 @@ gcx metrics adaptive rules delete <metric> [flags]
 ### Options
 
 ```
+  -f, --force            Skip confirmation prompt
   -h, --help             help for delete
       --segment string   Segment ID
-      --yes              Skip confirmation prompt
 ```
 
 ### Options inherited from parent commands
