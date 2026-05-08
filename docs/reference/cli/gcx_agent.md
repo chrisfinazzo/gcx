@@ -1,29 +1,15 @@
-## gcx skills list
+## gcx agent
 
-List skills bundled with the gcx binary
+Agent mode utilities
 
 ### Synopsis
 
-List skills bundled with the gcx binary, including each skill's short description and install status.
-
-```
-gcx skills list [flags]
-```
-
-### Examples
-
-```
-  gcx skills list
-  gcx skills list -o json
-```
+Utilities for gcx agent mode: manage spill files, install and update Agent Skills, and other agent session housekeeping.
 
 ### Options
 
 ```
-      --dir string      Root directory for the .agents installation (used to check installed status) (default "~/.agents")
-  -h, --help            help for list
-      --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
-  -o, --output string   Output format. One of: json, text, yaml (default "text")
+  -h, --help   help for agent
 ```
 
 ### Options inherited from parent commands
@@ -39,5 +25,7 @@ gcx skills list [flags]
 
 ### SEE ALSO
 
-* [gcx skills](gcx_skills.md)	 - Manage portable gcx Agent Skills
+* [gcx](gcx.md)	 - Control plane for Grafana Cloud operations
+* [gcx agent prune](gcx_agent_prune.md)	 - Remove gcx agent spill files older than 30 minutes
+* [gcx agent skills](gcx_agent_skills.md)	 - Manage portable gcx Agent Skills
 
