@@ -2,16 +2,13 @@ package providers
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/grafana/gcx/internal/agent"
 	"github.com/grafana/gcx/internal/config"
 	cmdio "github.com/grafana/gcx/internal/output"
-	"golang.org/x/term"
 )
 
 // ConfirmDestructive prompts the user to confirm a destructive operation.
@@ -34,10 +31,6 @@ func ConfirmDestructive(in io.Reader, out io.Writer, force bool, prompt string) 
 
 	if cliOpts.AutoApprove {
 		return true, nil
-	}
-
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return false, errors.New("stdin is not a terminal, use --force to skip confirmation")
 	}
 
 	fmt.Fprintf(out, "%s [y/N] ", prompt)
