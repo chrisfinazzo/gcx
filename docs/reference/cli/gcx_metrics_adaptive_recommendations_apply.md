@@ -11,7 +11,7 @@ gcx metrics adaptive recommendations apply [<metric>...|--all] [flags]
 ```
       --all              Apply all recommendations (bulk)
       --dry-run          Preview without applying
-  -f, --force            Skip confirmation prompt
+      --force            Skip confirmation prompt
   -h, --help             help for apply
       --segment string   Segment ID
 ```

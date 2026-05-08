@@ -9,7 +9,7 @@ gcx metrics adaptive exemptions delete <id> [flags]
 ### Options
 
 ```
-  -f, --force            Skip confirmation prompt
+      --force            Skip confirmation prompt
   -h, --help             help for delete
       --segment string   Segment ID
 ```

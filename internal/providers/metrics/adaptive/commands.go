@@ -250,7 +250,7 @@ type recommendationsApplyOpts struct {
 func (o *recommendationsApplyOpts) setup(flags *pflag.FlagSet) {
 	flags.BoolVar(&o.All, "all", false, "Apply all recommendations (bulk)")
 	flags.BoolVar(&o.DryRun, "dry-run", false, "Preview without applying")
-	flags.BoolVarP(&o.Force, "force", "f", false, "Skip confirmation prompt")
+	flags.BoolVar(&o.Force, "force", false, "Skip confirmation prompt")
 	flags.StringVar(&o.Segment, "segment", "", "Segment ID")
 }
 
@@ -780,7 +780,7 @@ type rulesDeleteOpts struct {
 
 func (o *rulesDeleteOpts) setup(flags *pflag.FlagSet) {
 	flags.StringVar(&o.Segment, "segment", "", "Segment ID")
-	flags.BoolVarP(&o.Force, "force", "f", false, "Skip confirmation prompt")
+	flags.BoolVar(&o.Force, "force", false, "Skip confirmation prompt")
 }
 
 func (h *metricsHelper) rulesDeleteCommand() *cobra.Command {
@@ -1313,7 +1313,7 @@ type segmentsDeleteOpts struct {
 }
 
 func (o *segmentsDeleteOpts) setup(flags *pflag.FlagSet) {
-	flags.BoolVarP(&o.Force, "force", "f", false, "Skip confirmation prompt")
+	flags.BoolVar(&o.Force, "force", false, "Skip confirmation prompt")
 }
 
 func (h *metricsHelper) segmentsDeleteCommand() *cobra.Command {
@@ -1777,7 +1777,7 @@ type exemptionsDeleteOpts struct {
 
 func (o *exemptionsDeleteOpts) setup(flags *pflag.FlagSet) {
 	flags.StringVar(&o.Segment, "segment", "", "Segment ID")
-	flags.BoolVarP(&o.Force, "force", "f", false, "Skip confirmation prompt")
+	flags.BoolVar(&o.Force, "force", false, "Skip confirmation prompt")
 }
 
 func (h *metricsHelper) exemptionsDeleteCommand() *cobra.Command {
