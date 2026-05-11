@@ -33,7 +33,7 @@ func FormatFrameTable(w io.Writer, fields []FrameField, values [][]any) error {
 		}
 	}
 
-	for r := 0; r < rowCount; r++ {
+	for r := range rowCount {
 		row := make([]string, len(fields))
 		for c := range fields {
 			var v any

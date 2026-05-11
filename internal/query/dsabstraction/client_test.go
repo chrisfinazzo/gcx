@@ -3,7 +3,6 @@ package dsabstraction_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,7 +114,7 @@ func TestQuery_BareErrorBody(t *testing.T) {
 	require.Error(t, err)
 
 	var apiErr *queryerror.APIError
-	require.True(t, errors.As(err, &apiErr), "want *queryerror.APIError, got %T", err)
+	require.ErrorAs(t, err, &apiErr, "want *queryerror.APIError, got %T", err)
 	assert.Equal(t, http.StatusInternalServerError, apiErr.StatusCode)
 	assert.Contains(t, apiErr.Message, "syntax error")
 	assert.True(t, apiErr.IsParseError())

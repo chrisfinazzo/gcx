@@ -2,7 +2,6 @@ package query_test
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/grafana/gcx/internal/datasources/query"
@@ -61,7 +60,7 @@ func TestFormatFrameTable_RaggedColumns(t *testing.T) {
 	require.NoError(t, query.FormatFrameTable(&buf, fields, values))
 	out := buf.String()
 	for _, want := range []string{"1", "2", "3", "x"} {
-		assert.True(t, strings.Contains(out, want), "expected %q in output", want)
+		assert.Contains(t, out, want, "expected %q in output", want)
 	}
 }
 

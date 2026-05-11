@@ -108,11 +108,11 @@ func (r *SQLResponse) RowCount() int {
 	if r == nil {
 		return 0
 	}
-	max := 0
+	longest := 0
 	for _, col := range r.Data.Values {
-		if len(col) > max {
-			max = len(col)
+		if len(col) > longest {
+			longest = len(col)
 		}
 	}
-	return max
+	return longest
 }

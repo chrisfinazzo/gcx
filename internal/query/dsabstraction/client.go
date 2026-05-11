@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,7 +45,7 @@ func (c *Client) Namespace() string {
 // Query executes a SQL query against the dsabstraction endpoint.
 func (c *Client) Query(ctx context.Context, req SQLRequest) (*SQLResponse, error) {
 	if req.SQL == "" {
-		return nil, fmt.Errorf("sql is required")
+		return nil, errors.New("sql is required")
 	}
 
 	body, err := json.Marshal(requestBody{

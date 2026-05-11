@@ -68,22 +68,28 @@ respond; others return 404 or 501.`,
 				return fmt.Errorf("failed to fetch schema: %w", err)
 			}
 
-			// When the user drills into a single table, also fetch the
-			// dynamic columns for that table — fullSchema only returns
-			// static columns (e.g. for Prometheus, just timestamp/value;
-			// label dimensions like job/instance only show up here).
-			// The columns endpoint also carries any table-level metadata
-			// the producer populates lazily (e.g. Prom HELP/TYPE).
+			// When the user drills into a single table, resolve it against
+			// the schema first so a typo errors out explicitly rather than
+			// silently rendering an empty result. After resolving, fetch
+			// dynamic columns + metadata — fullSchema only returns static
+			// columns (e.g. for Prometheus, just timestamp/value), and the
+			// columns endpoint also carries any table-level metadata the
+			// producer populates lazily (e.g. Prom HELP/TYPE).
 			if opts.Table != "" {
-				cr, err := client.Columns(ctx, args[0], []string{opts.Table}, nil)
+				resolved, ok := findTable(schema, opts.Table)
+				if !ok {
+					return fmt.Errorf("table %q not found in datasource %q", opts.Table, args[0])
+				}
+				opts.Table = resolved
+				cr, err := client.Columns(ctx, args[0], []string{resolved}, nil)
 				if err != nil {
-					return fmt.Errorf("failed to fetch columns for %q: %w", opts.Table, err)
+					return fmt.Errorf("failed to fetch columns for %q: %w", resolved, err)
 				}
-				if dyn, ok := cr.Columns[opts.Table]; ok {
-					mergeDynamicColumns(schema, opts.Table, dyn)
+				if dyn, ok := cr.Columns[resolved]; ok {
+					mergeDynamicColumns(schema, resolved, dyn)
 				}
-				if md, ok := cr.TableMetadata[opts.Table]; ok && !md.IsZero() {
-					mergeTableMetadata(schema, opts.Table, md)
+				if md, ok := cr.TableMetadata[resolved]; ok && !md.IsZero() {
+					mergeTableMetadata(schema, resolved, md)
 				}
 			}
 
@@ -95,6 +101,18 @@ respond; others return 404 or 501.`,
 	configOpts.BindFlags(cmd.Flags())
 	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// findTable does a case-insensitive lookup for the requested table name in
+// the schema. Returns the canonical (case-correct) name and true on hit,
+// "" and false on miss.
+func findTable(s *schemads.Schema, name string) (string, bool) {
+	for i := range s.Tables {
+		if strings.EqualFold(s.Tables[i].Name, name) {
+			return s.Tables[i].Name, true
+		}
+	}
+	return "", false
 }
 
 // mergeDynamicColumns replaces the columns of the named table in s with the
@@ -142,13 +160,14 @@ func (opts *schemaOpts) Validate() error {
 }
 
 // schemaView is the codec-agnostic shape rendered by `gcx datasources sql schema`.
-// One field is populated based on the user's flags so JSON/YAML output is
-// stable (always the same top-level keys).
+// In list mode (no --table) the Tables/TablesShown fields are populated; in
+// single-table mode only Table is. TablesShown is a pointer so it round-trips
+// as absent in JSON when not applicable, rather than misleadingly reporting 0.
 type schemaView struct {
 	Capabilities *schemads.DatasourceCapabilities `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Functions    []string                         `json:"functions,omitempty" yaml:"functions,omitempty"`
 	TablesTotal  int                              `json:"tablesTotal" yaml:"tablesTotal"`
-	TablesShown  int                              `json:"tablesShown" yaml:"tablesShown"`
+	TablesShown  *int                             `json:"tablesShown,omitempty" yaml:"tablesShown,omitempty"`
 	Tables       []string                         `json:"tables,omitempty" yaml:"tables,omitempty"`
 	Table        *schemads.Table                  `json:"table,omitempty" yaml:"table,omitempty"`
 }
@@ -160,6 +179,8 @@ func buildSchemaView(s *schemads.Schema, opts *schemaOpts) *schemaView {
 		TablesTotal:  len(s.Tables),
 	}
 
+	// Single-table mode: caller has already resolved the name (findTable
+	// returned ok), so this lookup is guaranteed to hit.
 	if opts.Table != "" {
 		for i := range s.Tables {
 			if strings.EqualFold(s.Tables[i].Name, opts.Table) {
@@ -168,7 +189,6 @@ func buildSchemaView(s *schemads.Schema, opts *schemaOpts) *schemaView {
 				return out
 			}
 		}
-		// Not found — leave Table nil; the codec surfaces this.
 		return out
 	}
 
@@ -184,7 +204,8 @@ func buildSchemaView(s *schemads.Schema, opts *schemaOpts) *schemaView {
 		names = names[:opts.Limit]
 	}
 	out.Tables = names
-	out.TablesShown = len(names)
+	shown := len(names)
+	out.TablesShown = &shown
 	return out
 }
 
@@ -219,14 +240,17 @@ func (c *schemaTableCodec) Encode(w io.Writer, data any) error {
 		return renderSingleTable(w, v.Table)
 	}
 
-	if v.Tables == nil {
-		// Either --table didn't match, or no tables at all.
+	shown := 0
+	if v.TablesShown != nil {
+		shown = *v.TablesShown
+	}
+	if shown == 0 {
 		fmt.Fprintln(w, "(no matching tables)")
 		return nil
 	}
 
-	if v.TablesTotal != v.TablesShown {
-		fmt.Fprintf(w, "Tables (%d shown of %d total):\n", v.TablesShown, v.TablesTotal)
+	if v.TablesTotal != shown {
+		fmt.Fprintf(w, "Tables (%d shown of %d total):\n", shown, v.TablesTotal)
 	} else {
 		fmt.Fprintf(w, "Tables (%d):\n", v.TablesTotal)
 	}

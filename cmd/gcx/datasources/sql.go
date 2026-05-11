@@ -53,11 +53,11 @@ clause as ` + "`<type>::<uid>`.`<table>`" + `, e.g.
 Requires a Grafana that exposes the dsabstraction.grafana.app/v1alpha1 API.`,
 		Annotations: map[string]string{
 			agent.AnnotationTokenCost: "medium",
-			agent.AnnotationLLMHint:   "gcx datasources sql query 'SELECT * FROM `prometheus::UID`.`up` LIMIT 10' --from now-5m --to now",
+			agent.AnnotationLLMHint:   "gcx datasources sql query 'SELECT timestamp, value, job FROM `prometheus::UID`.`up` LIMIT 10' --from now-5m --to now",
 		},
 		Example: `
   # Inline SQL with a relative time range
-  gcx datasources sql query 'SELECT * FROM ` + "`prometheus::UID`.`up`" + ` LIMIT 10' --from now-5m --to now
+  gcx datasources sql query 'SELECT timestamp, value, job FROM ` + "`prometheus::UID`.`up`" + ` LIMIT 10' --from now-5m --to now
 
   # Read SQL from a file
   gcx datasources sql query --query-file query.sql --since 1h
@@ -212,21 +212,39 @@ func (opts *sqlOpts) ResolveSQL(stdin io.Reader, args []string) (string, error) 
 		return strings.TrimSpace(args[0]), nil
 	}
 
-	if f, ok := stdin.(*os.File); ok {
-		fi, err := f.Stat()
-		if err == nil && (fi.Mode()&os.ModeCharDevice) == 0 {
-			b, err := io.ReadAll(stdin)
-			if err != nil {
-				return "", fmt.Errorf("failed to read SQL from stdin: %w", err)
-			}
-			s := strings.TrimSpace(string(b))
-			if s != "" {
-				return s, nil
-			}
-		}
+	if s, ok, err := readPipedSQL(stdin); err != nil {
+		return "", err
+	} else if ok {
+		return s, nil
 	}
 
 	return "", errors.New("SQL is required: provide it as a positional argument, --query, --query-file, or piped on stdin")
+}
+
+// readPipedSQL reads SQL from a non-TTY stdin. Returns (sql, true, nil) on a
+// usable read, (_, false, nil) when stdin is a TTY or empty, and a wrapped
+// error on read failure.
+func readPipedSQL(stdin io.Reader) (string, bool, error) {
+	f, ok := stdin.(*os.File)
+	if !ok {
+		return "", false, nil
+	}
+	// If Stat fails for any reason, treat stdin as not piped — we don't want
+	// a stat error on /dev/stdin to break commands that already supplied the
+	// SQL via a flag or arg.
+	fi, statErr := f.Stat()
+	if statErr != nil || (fi.Mode()&os.ModeCharDevice) != 0 {
+		return "", false, nil //nolint:nilerr // see comment above
+	}
+	b, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to read SQL from stdin: %w", err)
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return "", false, nil
+	}
+	return s, true, nil
 }
 
 func writePushdownPlan(w io.Writer, resp *dsabstraction.SQLResponse) error {

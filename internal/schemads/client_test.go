@@ -3,7 +3,6 @@ package schemads_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -85,7 +84,7 @@ func TestFullSchema_ErrorBody(t *testing.T) {
 	_, err := client.FullSchema(context.Background(), "missing")
 	require.Error(t, err)
 	var apiErr *queryerror.APIError
-	require.True(t, errors.As(err, &apiErr))
+	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
 	assert.Contains(t, strings.ToLower(apiErr.Message), "datasource not found")
 }
