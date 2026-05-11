@@ -17,12 +17,12 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// SchemaCmd returns the `schema` subcommand for inspecting the schemads
-// schema a datasource plugin advertises (tables, columns, hints,
+// sqlSchemaCmd returns the `sql schema` subcommand for inspecting the
+// schemads schema a datasource plugin advertises (tables, columns, hints,
 // capabilities). Useful for picking table/column names to use from
-// `gcx datasources sql` and for comparing the abstraction's view of a
-// datasource against its native commands.
-func SchemaCmd() *cobra.Command {
+// `gcx datasources sql query` and for comparing the abstraction's view of
+// a datasource against its native commands.
+func sqlSchemaCmd() *cobra.Command {
 	configOpts := &cmdconfig.Options{}
 	opts := &schemaOpts{}
 
@@ -38,17 +38,17 @@ Only datasources whose plugin implements the abstractionSchema endpoints
 respond; others return 404 or 501.`,
 		Annotations: map[string]string{
 			agent.AnnotationTokenCost: "medium",
-			agent.AnnotationLLMHint:   "gcx datasources schema UID --match up -o json",
+			agent.AnnotationLLMHint:   "gcx datasources sql schema UID --match up -o json",
 		},
 		Example: `
   # List tables (with --match to filter when there are many)
-  gcx datasources schema bfh6nkyxwj7cwf --match up
+  gcx datasources sql schema bfh6nkyxwj7cwf --match up
 
   # Drill into a single table's columns and hints
-  gcx datasources schema bfh6nkyxwj7cwf --table up
+  gcx datasources sql schema bfh6nkyxwj7cwf --table up
 
   # Full schema as JSON
-  gcx datasources schema bfh6nkyxwj7cwf -o json`,
+  gcx datasources sql schema bfh6nkyxwj7cwf -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.Validate(); err != nil {
@@ -141,7 +141,7 @@ func (opts *schemaOpts) Validate() error {
 	return opts.IO.Validate()
 }
 
-// schemaView is the codec-agnostic shape rendered by `gcx datasources schema`.
+// schemaView is the codec-agnostic shape rendered by `gcx datasources sql schema`.
 // One field is populated based on the user's flags so JSON/YAML output is
 // stable (always the same top-level keys).
 type schemaView struct {

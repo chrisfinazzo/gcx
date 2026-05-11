@@ -18,14 +18,29 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// SQLCmd returns the `sql` subcommand for executing cross-datasource SQL via
-// the dsabstraction.grafana.app API.
+// SQLCmd returns the `sql` command group, which mounts the abstraction-API
+// subcommands (query, schema) so all cross-datasource SQL tooling stays
+// together under `gcx datasources sql query`.
 func SQLCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sql",
+		Short: "Cross-datasource SQL via the dsabstraction.grafana.app API",
+		Long: `Tooling for the dsabstraction.grafana.app API: execute cross-datasource
+SQL queries and introspect the schema datasources expose to that engine.`,
+	}
+	cmd.AddCommand(sqlQueryCmd())
+	cmd.AddCommand(sqlSchemaCmd())
+	return cmd
+}
+
+// sqlQueryCmd returns the `sql query` subcommand for executing
+// cross-datasource SQL via the dsabstraction.grafana.app API.
+func sqlQueryCmd() *cobra.Command {
 	configOpts := &cmdconfig.Options{}
 	opts := &sqlOpts{}
 
 	cmd := &cobra.Command{
-		Use:   "sql [SQL]",
+		Use:   "query [SQL]",
 		Short: "Execute a SQL query against the dsabstraction API",
 		Long: `Execute a SQL query that can reference one or more datasources via
 the dsabstraction.grafana.app API.
@@ -38,24 +53,24 @@ clause as ` + "`<type>::<uid>`.`<table>`" + `, e.g.
 Requires a Grafana that exposes the dsabstraction.grafana.app/v1alpha1 API.`,
 		Annotations: map[string]string{
 			agent.AnnotationTokenCost: "medium",
-			agent.AnnotationLLMHint:   "gcx datasources sql 'SELECT * FROM `prometheus::UID`.`up` LIMIT 10' --from now-5m --to now",
+			agent.AnnotationLLMHint:   "gcx datasources sql query 'SELECT * FROM `prometheus::UID`.`up` LIMIT 10' --from now-5m --to now",
 		},
 		Example: `
   # Inline SQL with a relative time range
-  gcx datasources sql 'SELECT * FROM ` + "`prometheus::UID`.`up`" + ` LIMIT 10' --from now-5m --to now
+  gcx datasources sql query 'SELECT * FROM ` + "`prometheus::UID`.`up`" + ` LIMIT 10' --from now-5m --to now
 
   # Read SQL from a file
-  gcx datasources sql --query-file query.sql --since 1h
+  gcx datasources sql query --query-file query.sql --since 1h
 
   # Pipe SQL on stdin
-  echo 'SELECT 1' | gcx datasources sql --from now-5m --to now
+  echo 'SELECT 1' | gcx datasources sql query --from now-5m --to now
 
   # Disable server-side pushdown (for A/B comparison)
-  gcx datasources sql 'SELECT job, SUM(value) FROM ` + "`prometheus::UID`.`up`" + ` GROUP BY job' \
+  gcx datasources sql query 'SELECT job, SUM(value) FROM ` + "`prometheus::UID`.`up`" + ` GROUP BY job' \
       --from now-5m --to now --pushdown=false
 
   # Show the pushdown plan that the server reports
-  gcx datasources sql 'SELECT 1' --from now-5m --to now --show-plan`,
+  gcx datasources sql query 'SELECT 1' --from now-5m --to now --show-plan`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.Validate(); err != nil {
