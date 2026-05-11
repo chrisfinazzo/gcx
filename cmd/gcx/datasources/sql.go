@@ -106,13 +106,20 @@ Requires a Grafana that exposes the dsabstraction.grafana.app/v1alpha1 API.`,
 				return fmt.Errorf("query failed: %w", err)
 			}
 
+			view := &sqlView{
+				Schema: resp.Schema,
+				Data:   resp.Data,
+			}
 			if opts.ShowPlan {
-				if err := writePushdownPlan(cmd.OutOrStdout(), resp); err != nil {
-					return err
+				plan, err := resp.ParsePushdownPlan()
+				if err != nil {
+					return fmt.Errorf("failed to parse pushdown plan: %w", err)
 				}
+				view.PushdownPlan = plan
+				view.HasPlan = true
 			}
 
-			return opts.IO.Encode(cmd.OutOrStdout(), resp)
+			return opts.IO.Encode(cmd.OutOrStdout(), view)
 		},
 	}
 
@@ -247,11 +254,42 @@ func readPipedSQL(stdin io.Reader) (string, bool, error) {
 	return s, true, nil
 }
 
-func writePushdownPlan(w io.Writer, resp *dsabstraction.SQLResponse) error {
-	plan, err := resp.ParsePushdownPlan()
-	if err != nil {
-		return fmt.Errorf("failed to parse pushdown plan: %w", err)
+// sqlView is the codec-agnostic shape for a SQL query response. The frame
+// itself (Schema/Data) is always present; PushdownPlan is set only when the
+// user passed --show-plan and is parsed from schema.meta.custom.pushdownPlan.
+// HasPlan disambiguates "plan present but empty" (server reports no
+// pushdown — common when --pushdown=false) from "plan not requested".
+type sqlView struct {
+	PushdownPlan []dsabstraction.PushdownPlanEntry `json:"pushdownPlan,omitempty" yaml:"pushdownPlan,omitempty"`
+	HasPlan      bool                              `json:"-" yaml:"-"`
+	Schema       dsabstraction.FrameSchema         `json:"schema" yaml:"schema"`
+	Data         dsabstraction.FrameData           `json:"data" yaml:"data"`
+}
+
+type sqlTableCodec struct{}
+
+func (c *sqlTableCodec) Format() format.Format { return "table" }
+
+func (c *sqlTableCodec) Encode(w io.Writer, data any) error {
+	v, ok := data.(*sqlView)
+	if !ok {
+		return errors.New("invalid data type for table codec")
 	}
+
+	if v.HasPlan {
+		if err := renderPushdownPlanTable(w, v.PushdownPlan); err != nil {
+			return err
+		}
+	}
+
+	fields := make([]dsquery.FrameField, len(v.Schema.Fields))
+	for i, f := range v.Schema.Fields {
+		fields[i] = dsquery.FrameField{Name: f.Name, Type: f.Type}
+	}
+	return dsquery.FormatFrameTable(w, fields, v.Data.Values)
+}
+
+func renderPushdownPlanTable(w io.Writer, plan []dsabstraction.PushdownPlanEntry) error {
 	if len(plan) == 0 {
 		_, err := fmt.Fprintln(w, "(no pushdown plan reported)")
 		return err
@@ -267,25 +305,8 @@ func writePushdownPlan(w io.Writer, resp *dsabstraction.SQLResponse) error {
 	if err := t.Render(w); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(w)
+	_, err := fmt.Fprintln(w)
 	return err
-}
-
-type sqlTableCodec struct{}
-
-func (c *sqlTableCodec) Format() format.Format { return "table" }
-
-func (c *sqlTableCodec) Encode(w io.Writer, data any) error {
-	resp, ok := data.(*dsabstraction.SQLResponse)
-	if !ok {
-		return errors.New("invalid data type for table codec")
-	}
-
-	fields := make([]dsquery.FrameField, len(resp.Schema.Fields))
-	for i, f := range resp.Schema.Fields {
-		fields[i] = dsquery.FrameField{Name: f.Name, Type: f.Type}
-	}
-	return dsquery.FormatFrameTable(w, fields, resp.Data.Values)
 }
 
 func (c *sqlTableCodec) Decode(io.Reader, any) error {
