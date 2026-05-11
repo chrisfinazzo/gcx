@@ -91,10 +91,10 @@ var commandAnnotations = map[string]annotation{
 	"gcx setup instrumentation status":   {Cost: "small"},
 
 	// skills
-	"gcx skills install":   {Cost: "small"},
-	"gcx skills list":      {Cost: "small"},
-	"gcx skills update":    {Cost: "small"},
-	"gcx skills uninstall": {Cost: "small"},
+	"gcx agent skills install":   {Cost: "small"},
+	"gcx agent skills list":      {Cost: "small"},
+	"gcx agent skills update":    {Cost: "small"},
+	"gcx agent skills uninstall": {Cost: "small"},
 
 	// -----------------------------------------------------------------------
 	// Dashboards provider
@@ -111,12 +111,32 @@ var commandAnnotations = map[string]annotation{
 	// -----------------------------------------------------------------------
 	// Alert provider
 	// -----------------------------------------------------------------------
-	"gcx alert groups get":     {Cost: "small"},
-	"gcx alert groups list":    {Cost: "small"},
-	"gcx alert groups status":  {Cost: "medium", Hint: "<name> -o json"},
-	"gcx alert instances list": {Cost: "large", Hint: "--state firing --group <name> -o json"},
-	"gcx alert rules get":      {Cost: "small"},
-	"gcx alert rules list":     {Cost: "medium", Hint: "--folder <uid> --group <name> -o json"},
+	"gcx alert groups get":                   {Cost: "small"},
+	"gcx alert groups list":                  {Cost: "small"},
+	"gcx alert groups status":                {Cost: "medium", Hint: "<name> -o json"},
+	"gcx alert instances list":               {Cost: "large", Hint: "--state firing --group <name> -o json"},
+	"gcx alert rules get":                    {Cost: "small"},
+	"gcx alert rules list":                   {Cost: "medium", Hint: "--folder <uid> --group <name> -o json"},
+	"gcx alert contact-points list":          {Cost: "small"},
+	"gcx alert contact-points get":           {Cost: "small"},
+	"gcx alert contact-points create":        {Cost: "small"},
+	"gcx alert contact-points update":        {Cost: "small"},
+	"gcx alert contact-points delete":        {Cost: "small"},
+	"gcx alert contact-points export":        {Cost: "medium", Hint: "--format yaml"},
+	"gcx alert mute-timings list":            {Cost: "small"},
+	"gcx alert mute-timings get":             {Cost: "small"},
+	"gcx alert mute-timings create":          {Cost: "small"},
+	"gcx alert mute-timings update":          {Cost: "small"},
+	"gcx alert mute-timings delete":          {Cost: "small"},
+	"gcx alert mute-timings export":          {Cost: "medium", Hint: "--format yaml [--name <mute-timing>]"},
+	"gcx alert notification-policies get":    {Cost: "small"},
+	"gcx alert notification-policies set":    {Cost: "small"},
+	"gcx alert notification-policies reset":  {Cost: "small"},
+	"gcx alert notification-policies export": {Cost: "medium", Hint: "--format yaml"},
+	"gcx alert templates list":               {Cost: "small"},
+	"gcx alert templates get":                {Cost: "small"},
+	"gcx alert templates upsert":             {Cost: "small"},
+	"gcx alert templates delete":             {Cost: "small"},
 
 	// -----------------------------------------------------------------------
 	// App Observability provider
@@ -205,9 +225,8 @@ var commandAnnotations = map[string]annotation{
 	// Knowledge Graph provider
 	// -----------------------------------------------------------------------
 	"gcx kg cypher":                  {Cost: "medium", Hint: "\"MATCH (s:Service) RETURN s LIMIT 10\" [--since 1h] | read-only Cypher query; always include LIMIT for targeted lookups; omit for broad discovery"},
-	"gcx kg entities list":           {Cost: "medium", Hint: "--type <type> [--env <env>] [--namespace <ns>] --since 1h -o json | use --property name=<value> to fetch a single entity by name | run gcx kg meta scopes first to discover valid env/namespace/site values"},
+	"gcx kg entities list":           {Cost: "medium", Hint: "--type <type> [--env <env>] [--namespace <ns>] --since 1h -o json | use --property name=<value> to fetch a single entity by name | use --with-insights [any|critical|warning|info] to filter to entities with active insights | use --json type,name,scope when only entity identity is needed to reduce output size | run gcx kg meta scopes first to discover valid env/namespace/site values"},
 	"gcx kg health":                  {Cost: "medium", Hint: "--type <type> --since 1h -o json"},
-	"gcx kg insights active":         {Cost: "medium", Hint: "--type <type> --severity critical -o json"},
 	"gcx kg insights entity-metric":  {Cost: "medium", Hint: "<Type--Name> --insight-id <id>"},
 	"gcx kg insights example":        {Cost: "small"},
 	"gcx kg insights graph":          {Cost: "medium", Hint: "<Type--Name> -o json"},
@@ -372,6 +391,21 @@ var commandAnnotations = map[string]annotation{
 	"gcx aio11y templates get":      {Cost: "small"},
 	"gcx aio11y templates list":     {Cost: "small"},
 	"gcx aio11y templates versions": {Cost: "small"},
+
+	"gcx aio11y saved-conversations list":        {Cost: "small"},
+	"gcx aio11y saved-conversations get":         {Cost: "medium", Hint: "<saved-id> -o json"},
+	"gcx aio11y saved-conversations save":        {Cost: "small"},
+	"gcx aio11y saved-conversations delete":      {Cost: "small"},
+	"gcx aio11y saved-conversations collections": {Cost: "small"},
+
+	"gcx aio11y collections list":                 {Cost: "small"},
+	"gcx aio11y collections get":                  {Cost: "small"},
+	"gcx aio11y collections create":               {Cost: "small"},
+	"gcx aio11y collections update":               {Cost: "small"},
+	"gcx aio11y collections delete":               {Cost: "small"},
+	"gcx aio11y collections conversations list":   {Cost: "small"},
+	"gcx aio11y collections conversations add":    {Cost: "small"},
+	"gcx aio11y collections conversations remove": {Cost: "small"},
 
 	// -----------------------------------------------------------------------
 	// SLO provider

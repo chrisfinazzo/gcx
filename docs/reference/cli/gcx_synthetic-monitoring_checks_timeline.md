@@ -40,7 +40,7 @@ gcx synthetic-monitoring checks timeline ID [flags]
       --from string             Start of the time range (e.g. now-6h, now-24h, RFC3339, Unix timestamp)
   -h, --help                    help for timeline
       --json string             Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
-  -o, --output string           Output format. One of: graph, json, table, yaml (default "graph")
+  -o, --output string           Output format. One of: agents, graph, json, table, yaml (default "graph")
       --since string            Duration before now to display (e.g. 1h, 6h, 24h, 7d) (default "6h")
       --to string               End of the time range (e.g. now, RFC3339, Unix timestamp)
 ```
@@ -50,7 +50,7 @@ gcx synthetic-monitoring checks timeline ID [flags]
 ```
       --agent              Enable agent mode (JSON output, no color). Auto-detected from CLAUDECODE, CLAUDE_CODE, CURSOR_AGENT, GITHUB_COPILOT, AMAZON_Q, or GCX_AGENT_MODE env vars.
       --config string      Path to the configuration file to use
-      --context string     Name of the context to use
+      --context string     Name of the context to use (overrides current-context in config)
       --log-http-payload   Log full HTTP request/response bodies (includes headers — may expose tokens)
       --no-color           Disable color output
       --no-truncate        Disable table column truncation (auto-enabled when stdout is piped)

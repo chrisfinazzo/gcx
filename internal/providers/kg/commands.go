@@ -1,13 +1,13 @@
 package kg
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"sort"
@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/gcx/internal/config"
 	"github.com/grafana/gcx/internal/deeplink"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
+	"github.com/grafana/gcx/internal/providers"
 	"github.com/grafana/gcx/internal/resources/adapter"
 	"github.com/grafana/gcx/internal/shared"
 	"github.com/grafana/gcx/internal/style"
@@ -289,6 +289,8 @@ func readFileOrStdin(cmd *cobra.Command, path string) ([]byte, error) {
 // searchByTypes fans out Search across multiple entity types and merges results.
 // Server-side (5xx) failures for individual entity types are logged as warnings and skipped
 // so that a broken type does not abort results for all other types.
+// When the backend signals more pages (MaxLimitHit, or !LastPage) for a per-type
+// page, a hint is emitted to stderr suggesting --page to fetch further results.
 func searchByTypes(ctx context.Context, cmd *cobra.Command, client *Client, entityTypes []string, assertionsOnly bool, sc *ScopeCriteria, startMs, endMs int64, pageNum int, propertyFilters []PropertyMatcher) ([]SearchResult, error) {
 	if startMs == 0 && endMs == 0 {
 		now := time.Now().UnixMilli()
@@ -308,7 +310,7 @@ func searchByTypes(ctx context.Context, cmd *cobra.Command, client *Client, enti
 			ScopeCriteria: sc,
 			PageNum:       pageNum,
 		}
-		results, err := client.Search(ctx, req)
+		page, err := client.Search(ctx, req)
 		if err != nil {
 			var apiErr *APIError
 			if errors.As(err, &apiErr) && apiErr.IsServerError() {
@@ -317,7 +319,12 @@ func searchByTypes(ctx context.Context, cmd *cobra.Command, client *Client, enti
 			}
 			return nil, fmt.Errorf("search entity type %s: %w", et, err)
 		}
-		allResults = append(allResults, results...)
+		if page.MaxLimitHit || (!page.LastPage && len(page.Entities) > 0) {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"hint: more results available for type %q (page %d returned %d) — use --page %d or narrow with --property/--namespace\n",
+				et, pageNum, len(page.Entities), pageNum+1)
+		}
+		allResults = append(allResults, page.Entities...)
 	}
 	if allResults == nil {
 		return []SearchResult{}, nil
@@ -682,25 +689,20 @@ func newSuppressionsCommand(loader RESTConfigLoader) *cobra.Command {
 	}
 	createCmd.Flags().StringVarP(&fileFlag, "file", "f", "", "Input file (YAML), or '-' for stdin. Reads from stdin if omitted.")
 
-	var yes bool
+	var force bool
 	deleteCmd := &cobra.Command{
 		Use:   "delete <name>",
 		Short: "Delete a suppression by name.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			if !yes {
-				cliOpts, err := config.LoadCLIOptions()
-				if err != nil {
-					return err
-				}
-				if !cliOpts.AutoApprove {
-					fmt.Fprintf(cmd.OutOrStdout(), "Delete suppression %q? [y/N] ", name)
-					scanner := bufio.NewScanner(cmd.InOrStdin())
-					if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
-						return nil
-					}
-				}
+			proceed, err := providers.ConfirmDestructive(cmd.InOrStdin(), cmd.OutOrStdout(), force,
+				fmt.Sprintf("Delete suppression %q?", name))
+			if err != nil {
+				return err
+			}
+			if !proceed {
+				return nil
 			}
 			cfg, err := loader.LoadGrafanaConfig(cmd.Context())
 			if err != nil {
@@ -717,7 +719,7 @@ func newSuppressionsCommand(loader RESTConfigLoader) *cobra.Command {
 			return nil
 		},
 	}
-	deleteCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
+	deleteCmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
 
 	cmd.AddCommand(listCmd, createCmd, deleteCmd)
 	return cmd
@@ -802,20 +804,21 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 
 	// list subcommand
 	var (
-		listType        string
-		listAssertOnly  bool
-		listScope       scopeFlags
-		listPage        int
-		listPropertyRaw []string
-		listDetails     bool
+		listType         string
+		listWithInsights string
+		listScope        scopeFlags
+		listPage         int
+		listPropertyRaw  []string
 	)
-	listOpts := &entitiesShowOpts{}
+	listOpts := &entitiesListOpts{}
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List Knowledge Graph entities for a given type.",
 		Example: `  gcx kg entities list --type Service
   gcx kg entities list --type Service --namespace mimir-prod-01 --property name=model-builder
-  gcx kg entities list --type Service --property name=~builder --insights-only`,
+  gcx kg entities list --type Service --with-insights any
+  gcx kg entities list --type Service --with-insights critical
+  gcx kg entities list --type Service --with-insights any --json name,scope`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := listOpts.IO.Validate(); err != nil {
 				return err
@@ -847,25 +850,25 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 				}
 				propertyFilters = append(propertyFilters, pm)
 			}
-			results, err := searchByTypes(cmd.Context(), cmd, client, entityTypes, listAssertOnly, listScope.scopeCriteria(), startMs, endMs, listPage, propertyFilters)
+			withInsights := cmd.Flags().Changed("with-insights")
+			results, err := searchByTypes(cmd.Context(), cmd, client, entityTypes, withInsights, listScope.scopeCriteria(), startMs, endMs, listPage, propertyFilters)
 			if err != nil {
 				return err
 			}
+			if withInsights && listWithInsights != "any" {
+				results = filterBySeverity(results, listWithInsights)
+			}
 			results = adapter.TruncateSlice(results, listOpts.Limit)
-			if !listDetails {
-				for i := range results {
-					results[i].Properties = nil
-					results[i].Assertion = nil
-				}
+			if listOpts.Limit > 0 && int64(len(results)) >= listOpts.Limit {
+				fmt.Fprintf(os.Stderr, "hint: --limit of %d reached — results may be truncated; raise --limit or pass --limit 0 for all\n", listOpts.Limit)
 			}
 			return listOpts.IO.Encode(cmd.OutOrStdout(), results)
 		},
 	}
 	listCmd.Flags().StringVar(&listType, "type", "", "Entity type to list (run 'gcx kg meta schema' to see available types)")
-	listCmd.Flags().BoolVar(&listAssertOnly, "insights-only", false, "Only return entities with active insights")
+	listCmd.Flags().StringVar(&listWithInsights, "with-insights", "", "Filter to entities with active insights; narrow by severity: any, critical, warning, info")
 	listCmd.Flags().IntVar(&listPage, "page", 0, "Page number (0-based)")
 	listCmd.Flags().StringArrayVar(&listPropertyRaw, "property", nil, "Filter by property: name=value (exact) or name=~value (contains); repeatable (run 'gcx kg meta schema' to list property names)")
-	listCmd.Flags().BoolVar(&listDetails, "details", false, "Include entity properties and insights in output")
 	listScope.register(listCmd)
 	listCmd.Flags().Lookup("env").Usage = "Environment scope (run 'gcx kg meta scopes' to see valid values)"
 	listCmd.Flags().Lookup("namespace").Usage = "Namespace scope (run 'gcx kg meta scopes' to see valid values)"
@@ -877,16 +880,16 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 	return cmd
 }
 
-type entitiesShowOpts struct {
+type entitiesListOpts struct {
 	IO    cmdio.Options
 	Limit int64
 }
 
-func (o *entitiesShowOpts) setup(flags *pflag.FlagSet) {
+func (o *entitiesListOpts) setup(flags *pflag.FlagSet) {
 	o.IO.RegisterCustomCodec("table", &EntityTableCodec{})
 	o.IO.DefaultFormat("table")
 	o.IO.BindFlags(flags)
-	flags.Int64Var(&o.Limit, "limit", 50, "Maximum number of items to return (0 for all)")
+	flags.Int64Var(&o.Limit, "limit", 50, "Maximum number of items to return (0 for all; the backend may still page results — use --page to paginate)")
 }
 
 // EntityTableCodec renders search results as a table.
@@ -1035,56 +1038,6 @@ func newAssertionsCommand(loader RESTConfigLoader) *cobra.Command {
 		sub.Flags().String("to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
 		sub.Flags().String("since", "", "Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)")
 	}
-
-	// active subcommand
-	var (
-		activeScope      scopeFlags
-		activeEntityType string
-		activeSeverity   string
-		activePage       int
-	)
-	activeOpts := &assertionsActiveOpts{}
-	activeCmd := &cobra.Command{
-		Use:   "active",
-		Short: "Show entities with active insights.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := activeOpts.IO.Validate(); err != nil {
-				return err
-			}
-			cfg, err := loader.LoadGrafanaConfig(cmd.Context())
-			if err != nil {
-				return err
-			}
-			client, err := NewClient(cfg)
-			if err != nil {
-				return err
-			}
-			startMs, endMs, err := activeScope.resolveTime()
-			if err != nil {
-				return err
-			}
-			if err := activeScope.validateScopes(cmd.Context(), client); err != nil {
-				return err
-			}
-			entityTypes, err := resolveEntityTypes(cmd, client, activeEntityType)
-			if err != nil {
-				return err
-			}
-			results, err := searchByTypes(cmd.Context(), cmd, client, entityTypes, true, activeScope.scopeCriteria(), startMs, endMs, activePage, nil)
-			if err != nil {
-				return err
-			}
-			if activeSeverity != "" {
-				results = filterBySeverity(results, activeSeverity)
-			}
-			return activeOpts.IO.Encode(cmd.OutOrStdout(), results)
-		},
-	}
-	activeScope.register(activeCmd)
-	activeCmd.Flags().StringVar(&activeEntityType, "type", "", "Filter by entity type")
-	activeCmd.Flags().StringVar(&activeSeverity, "severity", "", "Filter by severity (e.g. CRITICAL, WARNING)")
-	activeCmd.Flags().IntVar(&activePage, "page", 0, "Page number (0-based)")
-	activeOpts.setup(activeCmd.Flags())
 
 	// entity-metric subcommand
 	var entityMetricScope scopeFlags
@@ -1280,17 +1233,8 @@ func newAssertionsCommand(loader RESTConfigLoader) *cobra.Command {
 	searchCmd.Flags().String("name", "", "Entity name filter")
 	searchAssertionsScope.register(searchCmd)
 
-	cmd.AddCommand(queryCmd, summaryCmd, graphCmd, activeCmd, entityMetricCmd, sourceMetricsCmd, exampleCmd, searchCmd)
+	cmd.AddCommand(queryCmd, summaryCmd, graphCmd, entityMetricCmd, sourceMetricsCmd, exampleCmd, searchCmd)
 	return cmd
-}
-
-type assertionsActiveOpts struct {
-	IO cmdio.Options
-}
-
-func (o *assertionsActiveOpts) setup(flags *pflag.FlagSet) {
-	o.IO.DefaultFormat("json")
-	o.IO.BindFlags(flags)
 }
 
 func buildAssertionsRequestFromFlags(cmd *cobra.Command, args []string, client *Client) (AssertionsRequest, error) {
@@ -1457,10 +1401,10 @@ func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 	ioOpts := &inspectOpts{}
 	cmd := &cobra.Command{
 		Use:   "inspect [Type--Name]",
-		Short: "Show detailed info, insights, and summary for a single entity.",
+		Short: "Show detailed info, insights, and summary for a single entity, including a link to the RCA Workbench.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ioOpts.IO.Validate(); err != nil {
+			if err := ioOpts.Validate(cmd.Flags()); err != nil {
 				return err
 			}
 			cfg, err := loader.LoadGrafanaConfig(cmd.Context())
@@ -1491,6 +1435,8 @@ func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 				scope = discovered
 			}
 
+			hideOlderHours, hideChronicPct := ioOpts.resolveInsightFilters(cmd.Flags())
+
 			llmReq := LLMSummaryRequest{
 				StartTime: startMs,
 				EndTime:   endMs,
@@ -1500,10 +1446,9 @@ func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 					Scope: toAnyMap(scope),
 				}},
 				SuggestionSrcEntities:                         []EntityKey{},
-				GroupAssertions:                               true,
-				AlertCategories:                               []string{"saturation", "amend", "anomaly", "failure", "error"},
-				HideAssertionsOlderThanNHours:                 48,
-				HideAssertionsPresentMoreThanPercentageOfTime: 90,
+				AlertCategories:                               ioOpts.InsightCategories,
+				HideAssertionsOlderThanNHours:                 hideOlderHours,
+				HideAssertionsPresentMoreThanPercentageOfTime: hideChronicPct,
 				IncludeSuggestions:                            true,
 				IncludeRcaPatterns:                            false,
 			}
@@ -1527,6 +1472,17 @@ func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 				}
 				return fmt.Errorf("%s/%s not found%s\nRun 'gcx kg entities list --type %s --property name=~%s' to find matching entities and their correct scope", entityType, name, scopeDesc, entityType, name)
 			}
+			if u := rcaWorkbenchURL(cfg.GrafanaURL, entityType, name, scope, startMs, endMs, inspectScope.since); u != "" {
+				if ioOpts.ShareLink {
+					cmdio.Info(cmd.ErrOrStderr(), "RCA Workbench: %s", u)
+				}
+				if ioOpts.Open {
+					cmdio.Info(cmd.ErrOrStderr(), "Opening RCA Workbench for %s/%s", entityType, name)
+					if err := deeplink.Open(u); err != nil {
+						cmdio.Warning(cmd.ErrOrStderr(), "could not open browser: %v", err)
+					}
+				}
+			}
 			return ioOpts.IO.Encode(cmd.OutOrStdout(), result)
 		},
 	}
@@ -1541,12 +1497,101 @@ func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 }
 
 type inspectOpts struct {
-	IO cmdio.Options
+	IO                      cmdio.Options
+	ShareLink               bool
+	Open                    bool
+	InsightCategories       []string
+	InsightHideNoise        bool
+	InsightHideOlderThan    time.Duration
+	InsightHideChronicAbove int
 }
 
 func (o *inspectOpts) setup(flags *pflag.FlagSet) {
 	o.IO.DefaultFormat("json")
 	o.IO.BindFlags(flags)
+	flags.BoolVar(&o.ShareLink, "share-link", false, "Print the RCA Workbench URL for this entity to stderr")
+	flags.BoolVar(&o.Open, "open", false, "Open the entity in the RCA Workbench in your browser")
+	flags.StringSliceVar(&o.InsightCategories, "insight-categories", nil, "Filter insights by category (comma-separated, e.g. saturation,anomaly,failure); empty = all categories")
+	flags.BoolVar(&o.InsightHideNoise, "insight-hide-noise", false, "Apply RCA Workbench noise filter: hide insights older than 48h or present >90% of the window")
+	flags.DurationVar(&o.InsightHideOlderThan, "insight-hide-older-than", 0, "Hide insights older than a whole number of hours (e.g. 24h); overrides --insight-hide-noise on this axis")
+	flags.IntVar(&o.InsightHideChronicAbove, "insight-hide-chronic-above", 0, "Hide insights present more than this percent of the window (0-100); overrides --insight-hide-noise on this axis")
+}
+
+func (o *inspectOpts) Validate(flags *pflag.FlagSet) error {
+	if err := o.IO.Validate(); err != nil {
+		return err
+	}
+	if flags.Changed("insight-hide-older-than") {
+		if o.InsightHideOlderThan <= 0 || o.InsightHideOlderThan%time.Hour != 0 {
+			return fmt.Errorf("--insight-hide-older-than must be a positive whole number of hours (e.g. 24h), got %s", o.InsightHideOlderThan)
+		}
+	}
+	if flags.Changed("insight-hide-chronic-above") {
+		if o.InsightHideChronicAbove < 0 || o.InsightHideChronicAbove > 100 {
+			return fmt.Errorf("--insight-hide-chronic-above must be between 0 and 100, got %d", o.InsightHideChronicAbove)
+		}
+	}
+	return nil
+}
+
+// resolveInsightFilters returns the hours and percent thresholds to send to the
+// LLM summary API, applying the --insight-hide-noise preset and per-axis overrides.
+func (o *inspectOpts) resolveInsightFilters(flags *pflag.FlagSet) (int, int) {
+	hideOlderHours := 0
+	hideChronicPct := 0
+	if o.InsightHideNoise {
+		hideOlderHours = 48
+		hideChronicPct = 90
+	}
+	if flags.Changed("insight-hide-older-than") {
+		hideOlderHours = int(o.InsightHideOlderThan.Hours())
+	}
+	if flags.Changed("insight-hide-chronic-above") {
+		hideChronicPct = o.InsightHideChronicAbove
+	}
+	return hideOlderHours, hideChronicPct
+}
+
+// rcaWorkbenchURL builds a deep link to the Asserts RCA Workbench for a single entity.
+// start/end use the relative expression (e.g. "now-24h"/"now") when since is set,
+// otherwise fall back to millisecond epoch timestamps.
+func rcaWorkbenchURL(host, entityType, name string, scope map[string]string, startMs, endMs int64, since string) string {
+	if host == "" {
+		return ""
+	}
+	start, end := strconv.FormatInt(startMs, 10), strconv.FormatInt(endMs, 10)
+	if since != "" {
+		start, end = "now-"+since, "now"
+	}
+
+	q := url.Values{}
+	q.Set("start", start)
+	q.Set("end", end)
+	if v := scope["env"]; v != "" {
+		q.Set("env[0]", v)
+	}
+	if v := scope["namespace"]; v != "" {
+		q.Set("namespace[0]", v)
+	}
+	if v := scope["site"]; v != "" {
+		q.Set("site[0]", v)
+	}
+	q.Set("we[0][n]", name)
+	q.Set("we[0][tp]", entityType)
+	if v := scope["namespace"]; v != "" {
+		q.Set("we[0][sc][ns]", v)
+	}
+	if v := scope["env"]; v != "" {
+		q.Set("we[0][sc][env]", v)
+	}
+	if v := scope["site"]; v != "" {
+		q.Set("we[0][sc][site]", v)
+	}
+	q.Set("view", "BY_ENTITY")
+
+	// url.Values.Encode percent-encodes brackets; replace them back for readability.
+	encoded := strings.NewReplacer("%5B", "[", "%5D", "]").Replace(q.Encode())
+	return strings.TrimRight(host, "/") + "/a/grafana-asserts-app/assertions?" + encoded
 }
 
 // ---------------------------------------------------------------------------

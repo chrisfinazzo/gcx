@@ -105,6 +105,11 @@ internal/
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`
 │   ├── fleet/      Fleet Management provider (pipeline and collector resources)
+│   ├── instrumentation/  Instrumentation Hub provider (typed connect-go client, RMW with optimistic-lock, output codecs, helm formatter, enumerate helper)
+│   │   ├── enumerate/  Cluster enumeration helper (RunK8sMonitoring ⋃ ListPipelines merge)
+│   │   ├── helm/       Helm command formatter for the setup wizard
+│   │   ├── output/     View types and codecs (clusters, apps, services; wait/mutation envelopes)
+│   │   └── rmw/        Read-modify-write helper with optimistic-lock guard (ConflictError)
 │   ├── irm/        IRM provider (OnCall + Incidents — schedules, integrations, escalation chains, incidents)
 │   ├── k6/         k6 Cloud provider (projects, tests, runs, envvars)
 │   ├── kg/         Knowledge Graph (Asserts) provider
@@ -112,7 +117,7 @@ internal/
 │   ├── metrics/    Metrics signal provider (Prometheus queries + Adaptive Metrics commands)
 │   ├── appo11y/    App Observability provider (overrides, settings — singleton resources)
 │   ├── profiles/   Profiles signal provider (Pyroscope queries + adaptive stub)
-│   ├── aio11y/     AI Observability provider (conversations, agents, generations, evaluators, rules, templates, scores, judge — via grafana-sigil-app plugin API)
+│   ├── aio11y/     AI Observability provider (conversations, agents, generations, evaluators, rules, templates, scores, judge, saved-conversations, collections — via grafana-sigil-app plugin API)
 │   ├── slo/        SLO provider (definitions, reports)
 │   ├── synth/      Synthetic Monitoring provider (checks, probes)
 │   └── traces/     Traces signal provider (Tempo queries + Adaptive Traces commands)
@@ -128,6 +133,7 @@ internal/
 │   ├── assistanthttp/  Base HTTP client for grafana-assistant-app plugin API
 │   └── investigations/ Investigation CRUD commands, table codecs, API client
 ├── agent/       Agent mode detection, command annotations, known-resource registry with operation hints
+├── agentlog/    Agent invocation failure logger (opt-in JSONL disk log, XDG state dir — wired into handleError in cmd/gcx/main.go)
 ├── style/       Terminal styling (Grafana Neon Dark theme, TableBuilder, ASCII banner, glamour help)
 ├── terminal/    TTY/pipe detection (IsPiped, NoTruncate, Detect) for output suppression
 ├── linter/      Linting engine (Rego rules, report aggregation, PromQL/LogQL validators)
@@ -135,7 +141,7 @@ internal/
 ├── testutils/   Shared test utilities
 ├── server/      Live dev server (Chi router, reverse proxy, websocket reload)
 ├── grafana/     OpenAPI client (health checks, version detection)
-├── output/      Output codec registry (json, yaml, text, wide — field selection, discovery, k8s unstructured handling)
+├── output/      Output codec registry (json, yaml, text, wide, agents — field selection, discovery, k8s unstructured handling, temp-file spill)
 ├── format/      JSON/YAML codecs with format auto-detection
 ├── retry/       Retry transport (429, 502/503/504, transient connection errors — wraps all HTTP tiers)
 ├── httputils/   HTTP helpers (used by serve command's proxy)
@@ -184,17 +190,17 @@ Automated via `mise run tag`. Requires `claude` CLI and [`svu`](https://github.c
 mise run tag -- patch   # or minor, major
 ```
 
-This generates a changelog entry (via Claude), updates `CHANGELOG.md` and `.release-notes.md`, commits, tags, and pushes. The tag push triggers the GoReleaser workflow.
+This generates a changelog entry (via Claude), updates `CHANGELOG.md` and `.release-notes.md`, commits on a `release/vX.Y.Z` branch, and pushes the branch. Then:
 
-**With branch protection** (can't push directly to main): the script will fail at the push step. Instead:
-1. Create a branch, commit the changelog, open a PR
-2. Merge the PR
-3. Tag the merge commit on main and push the tag:
+1. Open a PR and merge it (the script prints the exact command)
+2. After merge, tag the commit on main and push the tag:
    ```bash
    git checkout main && git pull
    git tag v0.X.Y
    git push origin v0.X.Y
    ```
+
+The tag push triggers the GoReleaser workflow.
 
 ## Mandatory Pull Request Checklist
 
