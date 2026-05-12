@@ -60,3 +60,50 @@ func TestGetByUID_ReturnsTypedNotFoundError(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
 	assert.Equal(t, "Datasource not found", apiErr.Message)
 }
+
+func TestHealth_ReturnsResult(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/datasources/uid/prom-001/health", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"OK","message":"Successfully queried the Prometheus API."}`))
+	}))
+
+	result, err := client.Health(context.Background(), "prom-001")
+	require.NoError(t, err)
+	assert.Equal(t, "OK", result.Status)
+	assert.Equal(t, "Successfully queried the Prometheus API.", result.Message)
+}
+
+func TestHealth_ReturnsErrorResultOnNon200(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/datasources/uid/bad-prom/health", r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"status":"ERROR","message":"connection refused"}`))
+	}))
+
+	result, err := client.Health(context.Background(), "bad-prom")
+	require.NoError(t, err)
+	assert.Equal(t, "ERROR", result.Status)
+	assert.Equal(t, "connection refused", result.Message)
+}
+
+func TestHealth_ReturnsTypedAPIError(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/datasources/uid/missing/health", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"Datasource not found"}`))
+	}))
+
+	_, err := client.Health(context.Background(), "missing")
+	require.Error(t, err)
+
+	var apiErr *datasources.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "health check datasource", apiErr.Operation)
+	assert.Equal(t, "missing", apiErr.Identifier)
+	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
+	assert.Equal(t, "Datasource not found", apiErr.Message)
+}
