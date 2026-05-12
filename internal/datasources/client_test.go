@@ -43,22 +43,14 @@ func TestList_ReturnsTypedAPIError(t *testing.T) {
 }
 
 func TestGetByUID_ReturnsTypedNotFoundError(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/api/datasources/uid/missing", r.URL.Path)
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"message":"Datasource not found"}`))
-	}))
-
-	_, err := client.GetByUID(context.Background(), "missing")
-	require.Error(t, err)
-
-	var apiErr *datasources.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "get datasource", apiErr.Operation)
-	assert.Equal(t, "missing", apiErr.Identifier)
-	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
-	assert.Equal(t, "Datasource not found", apiErr.Message)
+	assertNotFoundAPIError(t,
+		"/api/datasources/uid/missing",
+		func(client *datasources.Client) error {
+			_, err := client.GetByUID(context.Background(), "missing")
+			return err
+		},
+		"get datasource",
+	)
 }
 
 func TestHealth_ReturnsResult(t *testing.T) {
@@ -90,19 +82,31 @@ func TestHealth_ReturnsErrorResultOnNon200(t *testing.T) {
 }
 
 func TestHealth_ReturnsTypedAPIError(t *testing.T) {
+	assertNotFoundAPIError(t,
+		"/api/datasources/uid/missing/health",
+		func(client *datasources.Client) error {
+			_, err := client.Health(context.Background(), "missing")
+			return err
+		},
+		"health check datasource",
+	)
+}
+
+func assertNotFoundAPIError(t *testing.T, expectedPath string, call func(*datasources.Client) error, expectedOp string) {
+	t.Helper()
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/api/datasources/uid/missing/health", r.URL.Path)
+		assert.Equal(t, expectedPath, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"Datasource not found"}`))
 	}))
 
-	_, err := client.Health(context.Background(), "missing")
+	err := call(client)
 	require.Error(t, err)
 
 	var apiErr *datasources.APIError
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "health check datasource", apiErr.Operation)
+	assert.Equal(t, expectedOp, apiErr.Operation)
 	assert.Equal(t, "missing", apiErr.Identifier)
 	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
 	assert.Equal(t, "Datasource not found", apiErr.Message)

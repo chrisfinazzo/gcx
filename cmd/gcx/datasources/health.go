@@ -41,7 +41,7 @@ func healthCmd() *cobra.Command {
 		Long:  "Run a health check against a datasource by its UID using the Grafana health check API.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("required argument: datasource UID\n\nUsage: gcx datasources health <uid>\n\nTip: run 'gcx datasources list' to see available datasource UIDs")
+				return errors.New("required argument: datasource UID\n\nUsage: gcx datasources health <uid>\n\nTip: run 'gcx datasources list' to see available datasource UIDs")
 			}
 			if len(args) > 1 {
 				return fmt.Errorf("expected exactly one datasource UID, got %d", len(args))
@@ -149,11 +149,15 @@ func (c *healthTableCodec) Encode(w io.Writer, data any) error {
 	isErr := info.Status != "OK"
 	status := style.ColorCell(info.Status, false, isErr)
 
-	var actions string
-	for _, a := range info.Actions {
-		actions += "• " + a + "\n"
+	var buf strings.Builder
+	for i, a := range info.Actions {
+		if i > 0 {
+			buf.WriteByte('\n')
+		}
+		buf.WriteString("• ")
+		buf.WriteString(a)
 	}
-	actions = strings.TrimRight(actions, "\n")
+	actions := buf.String()
 
 	t := style.NewTable("UID", "NAME", "TYPE", "STATUS", "MESSAGE", "ACTIONS")
 	t.Row(info.UID, info.Name, info.Type, status, info.Message, actions)
