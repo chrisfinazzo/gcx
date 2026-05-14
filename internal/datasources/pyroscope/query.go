@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/grafana/gcx/internal/agent"
 	internalconfig "github.com/grafana/gcx/internal/config"
 	dsquery "github.com/grafana/gcx/internal/datasources/query"
@@ -41,6 +42,8 @@ func QueryCmd(loader *providers.ConfigLoader) *cobra.Command {
 	var profileType string
 	var maxNodes int64
 	var datasource string
+	var profileIDs []string
+	var stacktraceSelector []string
 	var pprofPath string
 	var pprofOverwrite bool
 
@@ -64,6 +67,19 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
   gcx datasources pyroscope query -d UID '{service_name="frontend"}' \
     --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds -o json
 
+  # Drill into one or more specific profiles found via exemplars
+  # (--profile-id is repeatable; pass it once per UUID)
+  gcx datasources pyroscope query '{service_name="frontend"}' \
+    --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --since 1h \
+    --profile-id 550e8400-e29b-41d4-a716-446655440000 \
+    --profile-id 7c9e6679-7425-40de-944b-e07fc1f90ae7
+
+  # Restrict the flamegraph to stacks rooted at a specific call site
+  # (--stacktrace-selector is repeatable; pass it once per frame, root first)
+  gcx datasources pyroscope query '{service_name="my-go-service"}' \
+    --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --since 1h \
+    --stacktrace-selector 'github.com/prometheus/client_golang/prometheus.(*Registry).Gather.func1'
+
   # Download as pprof binary (for use with go tool pprof)
   gcx datasources pyroscope query -d UID '{service_name="frontend"}' \
     --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds -o pprof
@@ -84,6 +100,12 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 
 			if profileType == "" {
 				return errors.New("--profile-type is required for pyroscope queries")
+			}
+
+			for _, id := range profileIDs {
+				if _, err := uuid.Parse(id); err != nil {
+					return fmt.Errorf("--profile-id must be a valid UUID (got %q)", id)
+				}
 			}
 
 			expr, err := shared.ResolveExpr(args, 0)
@@ -148,16 +170,27 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 				return pyroscope.FormatPprofWriteTable(cmd.OutOrStdout(), result)
 			}
 
+			var sts *pyroscope.StackTraceSelector
+			if len(stacktraceSelector) > 0 {
+				locs := make([]pyroscope.Location, len(stacktraceSelector))
+				for i, n := range stacktraceSelector {
+					locs[i] = pyroscope.Location{Name: n}
+				}
+				sts = &pyroscope.StackTraceSelector{CallSite: locs}
+			}
+
 			resolvedMaxNodes := maxNodes
 			if !cmd.Flags().Changed("max-nodes") {
 				resolvedMaxNodes = defaultMaxNodes
 			}
 			req := pyroscope.QueryRequest{
-				LabelSelector: expr,
-				ProfileTypeID: profileType,
-				Start:         start,
-				End:           end,
-				MaxNodes:      resolvedMaxNodes,
+				LabelSelector:      expr,
+				ProfileTypeID:      profileType,
+				Start:              start,
+				End:                end,
+				MaxNodes:           resolvedMaxNodes,
+				ProfileIDs:         profileIDs,
+				StackTraceSelector: sts,
 			}
 
 			resp, err := client.Query(ctx, datasourceUID, req)
@@ -182,6 +215,8 @@ Datasource is resolved from -d flag or datasources.pyroscope in your context.`,
 	cmd.Flags().StringVarP(&datasource, "datasource", "d", "", "Datasource UID (required unless datasources.pyroscope is configured)")
 	cmd.Flags().StringVar(&profileType, "profile-type", "", "Profile type ID (e.g., 'process_cpu:cpu:nanoseconds:cpu:nanoseconds'); use 'gcx profiles profile-types' to list available (required)")
 	cmd.Flags().Int64Var(&maxNodes, "max-nodes", 0, fmt.Sprintf("Maximum nodes in flame graph (default 0/unlimited for pprof output, %d for all other formats)", defaultMaxNodes))
+	cmd.Flags().StringSliceVar(&profileIDs, "profile-id", nil, "Drill down to specific profile UUIDs from exemplar queries (repeatable)")
+	cmd.Flags().StringSliceVar(&stacktraceSelector, "stacktrace-selector", nil, "Only query locations with these function names, starting from the root (repeatable)")
 	cmd.Flags().StringVar(&pprofPath, "pprof-path", "", "Destination path for pprof binary output (only with -o pprof; default: profile-YYYY-MM-DD-HHMMSS.pb.gz)")
 	cmd.Flags().BoolVar(&pprofOverwrite, "pprof-overwrite", false, "Overwrite the output file if it already exists (only with -o pprof)")
 
