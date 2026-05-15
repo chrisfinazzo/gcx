@@ -7,7 +7,7 @@ Find entities with active insights matching the given rules.
 Find entities with active insights matching the given rules.
 
 Each --insight flag is a separate rule (ORed together); severities are ANDed
-into every rule. Prefix the value with ~ for a substring match.
+into every rule. Only the "name" property is supported today.
 
 ```
 gcx kg entities find-by-insight [flags]
@@ -16,10 +16,10 @@ gcx kg entities find-by-insight [flags]
 ### Examples
 
 ```
-  gcx kg entities find-by-insight --insight ~Saturation
-  gcx kg entities find-by-insight --insight ErrorRatioBreach --severity critical
+  gcx kg entities find-by-insight --insight name=~Saturation
+  gcx kg entities find-by-insight --insight name=ErrorRatioBreach --severity critical
   gcx kg entities find-by-insight --severity critical,warning --namespace mimir-prod-01
-  gcx kg entities find-by-insight --type Namespace --insight ~Latency --since 1h
+  gcx kg entities find-by-insight --type Namespace --insight name=~Latency --since 1h
 ```
 
 ### Options
@@ -28,7 +28,7 @@ gcx kg entities find-by-insight [flags]
       --env string            Environment scope
       --from string           Start time (RFC3339, Unix timestamp, or relative like 'now-1h')
   -h, --help                  help for find-by-insight
-      --insight stringArray   Filter by insight name: bare value for exact match, ~value for substring; repeatable, rules are ORed
+      --insight stringArray   Filter by insight property: name=value (exact) or name=~value (contains); repeatable, rules are ORed. Only "name" is supported today.
       --namespace string      Namespace scope
       --severity strings      Filter by insight severity: critical, warning, info (comma-separated)
       --since string          Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)
