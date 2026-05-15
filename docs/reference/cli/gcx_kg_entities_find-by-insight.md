@@ -6,7 +6,6 @@ Find entities with active insights matching the given rules.
 
 Find entities with active insights matching the given rules.
 
-Backed by the same endpoint the Asserts UI's "Entities with Insights" panel uses.
 Each --insight flag is a separate rule (ORed together); severities are ANDed
 into every rule.
 
