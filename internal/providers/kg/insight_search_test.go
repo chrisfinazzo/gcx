@@ -11,8 +11,10 @@ import (
 func TestBuildInsightSearchRequest(t *testing.T) {
 	scope := &kg.ScopeCriteria{NameAndValues: map[string][]string{"env": {"prod"}}}
 
-	t.Run("single name rule maps op", func(t *testing.T) {
-		req, err := kg.BuildInsightSearchRequest("Service", []string{"contains=Saturation"}, nil, nil, 100, 200)
+	t.Run("contains rule maps op", func(t *testing.T) {
+		req, err := kg.BuildInsightSearchRequest("Service", []kg.PropertyMatcher{
+			{Name: "name", Op: "CONTAINS", Value: "Saturation"},
+		}, nil, nil, 100, 200)
 		require.NoError(t, err)
 		assert.Equal(t, "Service", req.EntityType)
 		require.Len(t, req.SearchCriteria, 1)
@@ -23,22 +25,23 @@ func TestBuildInsightSearchRequest(t *testing.T) {
 		assert.Nil(t, req.ScopeCriteria)
 	})
 
-	t.Run("ops are case-insensitive and cover all three", func(t *testing.T) {
-		req, err := kg.BuildInsightSearchRequest("Service", []string{
-			"CONTAINS=foo",
-			"starts-with=bar",
-			"Equals=baz",
+	t.Run("equals and contains rules cover both ops", func(t *testing.T) {
+		req, err := kg.BuildInsightSearchRequest("Service", []kg.PropertyMatcher{
+			{Name: "name", Op: "CONTAINS", Value: "foo"},
+			{Name: "name", Op: "=", Value: "baz"},
 		}, nil, nil, 0, 0)
 		require.NoError(t, err)
-		require.Len(t, req.SearchCriteria, 3)
+		require.Len(t, req.SearchCriteria, 2)
 		assert.Equal(t, "CONTAINS", req.SearchCriteria[0].LabelMatchers[0].Op)
-		assert.Equal(t, "STARTS WITH", req.SearchCriteria[1].LabelMatchers[0].Op)
-		assert.Equal(t, "=", req.SearchCriteria[2].LabelMatchers[0].Op)
+		assert.Equal(t, "=", req.SearchCriteria[1].LabelMatchers[0].Op)
 	})
 
 	t.Run("severity matchers AND into every rule group", func(t *testing.T) {
 		req, err := kg.BuildInsightSearchRequest("Service",
-			[]string{"contains=foo", "equals=bar"},
+			[]kg.PropertyMatcher{
+				{Name: "name", Op: "CONTAINS", Value: "foo"},
+				{Name: "name", Op: "=", Value: "bar"},
+			},
 			[]string{"critical", "warning"},
 			nil, 0, 0)
 		require.NoError(t, err)
@@ -63,7 +66,7 @@ func TestBuildInsightSearchRequest(t *testing.T) {
 
 	t.Run("blank severities are skipped", func(t *testing.T) {
 		req, err := kg.BuildInsightSearchRequest("Service",
-			[]string{"contains=foo"},
+			[]kg.PropertyMatcher{{Name: "name", Op: "CONTAINS", Value: "foo"}},
 			[]string{"", " ", "critical"},
 			nil, 0, 0)
 		require.NoError(t, err)
@@ -74,22 +77,18 @@ func TestBuildInsightSearchRequest(t *testing.T) {
 
 	t.Run("scope and time propagate through", func(t *testing.T) {
 		req, err := kg.BuildInsightSearchRequest("Namespace",
-			[]string{"contains=foo"}, nil, scope, 1000, 2000)
+			[]kg.PropertyMatcher{{Name: "name", Op: "CONTAINS", Value: "foo"}}, nil, scope, 1000, 2000)
 		require.NoError(t, err)
 		assert.Equal(t, "Namespace", req.EntityType)
 		assert.Equal(t, scope, req.ScopeCriteria)
 		assert.Equal(t, &kg.TimeCriteria{Start: 1000, End: 2000}, req.TimeCriteria)
 	})
 
-	t.Run("missing = returns error", func(t *testing.T) {
-		_, err := kg.BuildInsightSearchRequest("Service", []string{"Saturation"}, nil, nil, 0, 0)
+	t.Run("non-name property returns error", func(t *testing.T) {
+		_, err := kg.BuildInsightSearchRequest("Service",
+			[]kg.PropertyMatcher{{Name: "severity", Op: "=", Value: "critical"}},
+			nil, nil, 0, 0)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "expected op=value")
-	})
-
-	t.Run("unknown op returns error", func(t *testing.T) {
-		_, err := kg.BuildInsightSearchRequest("Service", []string{"matches=foo"}, nil, nil, 0, 0)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "must be one of contains, starts-with, equals")
+		assert.Contains(t, err.Error(), "only \"name\" is supported")
 	})
 }

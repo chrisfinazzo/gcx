@@ -6,8 +6,8 @@ Find entities with active insights matching the given rules.
 
 Find entities with active insights matching the given rules.
 
-Each --insight flag is a separate rule (ORed together); severities are ANDed
-into every rule.
+Each --property flag is a separate rule (ORed together); severities are ANDed
+into every rule. Only the "name" property is supported today.
 
 ```
 gcx kg entities find-by-insight [flags]
@@ -16,25 +16,25 @@ gcx kg entities find-by-insight [flags]
 ### Examples
 
 ```
-  gcx kg entities find-by-insight --insight contains=Saturation
-  gcx kg entities find-by-insight --insight equals=ErrorRatioBreach --severity critical
+  gcx kg entities find-by-insight --property name=~Saturation
+  gcx kg entities find-by-insight --property name=ErrorRatioBreach --severity critical
   gcx kg entities find-by-insight --severity critical,warning --namespace mimir-prod-01
-  gcx kg entities find-by-insight --type Namespace --insight starts-with=Latency --since 1h
+  gcx kg entities find-by-insight --type Namespace --property name=~Latency --since 1h
 ```
 
 ### Options
 
 ```
-      --env string            Environment scope
-      --from string           Start time (RFC3339, Unix timestamp, or relative like 'now-1h')
-  -h, --help                  help for find-by-insight
-      --insight stringArray   Insight-name rule: op=value where op is contains, starts-with, or equals (repeatable; rules are ORed)
-      --namespace string      Namespace scope
-      --severity strings      Filter by insight severity: critical, warning, info (comma-separated)
-      --since string          Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)
-      --site string           Site scope
-      --to string             End time (RFC3339, Unix timestamp, or relative like 'now')
-      --type string           Root entity type (e.g. Service, Namespace, Node) (default "Service")
+      --env string             Environment scope
+      --from string            Start time (RFC3339, Unix timestamp, or relative like 'now-1h')
+  -h, --help                   help for find-by-insight
+      --namespace string       Namespace scope
+      --property stringArray   Filter by insight property: name=value (exact) or name=~value (contains); repeatable, rules are ORed. Only "name" is supported today.
+      --severity strings       Filter by insight severity: critical, warning, info (comma-separated)
+      --since string           Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)
+      --site string            Site scope
+      --to string              End time (RFC3339, Unix timestamp, or relative like 'now')
+      --type string            Root entity type (e.g. Service, Namespace, Node) (default "Service")
 ```
 
 ### Options inherited from parent commands

@@ -885,7 +885,7 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 func newEntitiesFindByInsightCommand(loader RESTConfigLoader) *cobra.Command {
 	var (
 		searchEntityType string
-		searchNames      []string
+		searchPropsRaw   []string
 		searchSeverities []string
 		searchScope      scopeFlags
 	)
@@ -894,12 +894,12 @@ func newEntitiesFindByInsightCommand(loader RESTConfigLoader) *cobra.Command {
 		Short: "Find entities with active insights matching the given rules.",
 		Long: `Find entities with active insights matching the given rules.
 
-Each --insight flag is a separate rule (ORed together); severities are ANDed
-into every rule.`,
-		Example: `  gcx kg entities find-by-insight --insight contains=Saturation
-  gcx kg entities find-by-insight --insight equals=ErrorRatioBreach --severity critical
+Each --property flag is a separate rule (ORed together); severities are ANDed
+into every rule. Only the "name" property is supported today.`,
+		Example: `  gcx kg entities find-by-insight --property name=~Saturation
+  gcx kg entities find-by-insight --property name=ErrorRatioBreach --severity critical
   gcx kg entities find-by-insight --severity critical,warning --namespace mimir-prod-01
-  gcx kg entities find-by-insight --type Namespace --insight starts-with=Latency --since 1h`,
+  gcx kg entities find-by-insight --type Namespace --property name=~Latency --since 1h`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := loader.LoadGrafanaConfig(cmd.Context())
 			if err != nil {
@@ -916,7 +916,18 @@ into every rule.`,
 			if err := searchScope.validateScopes(cmd.Context(), client); err != nil {
 				return err
 			}
-			req, err := buildInsightSearchRequest(searchEntityType, searchNames, searchSeverities, searchScope.scopeCriteria(), startMs, endMs)
+			matchers := make([]PropertyMatcher, 0, len(searchPropsRaw))
+			for _, raw := range searchPropsRaw {
+				pm, err := parsePropertyFlag(raw)
+				if err != nil {
+					return err
+				}
+				if pm.Name != "name" {
+					return fmt.Errorf("--property %q: only the \"name\" property is supported", raw)
+				}
+				matchers = append(matchers, pm)
+			}
+			req, err := buildInsightSearchRequest(searchEntityType, matchers, searchSeverities, searchScope.scopeCriteria(), startMs, endMs)
 			if err != nil {
 				return err
 			}
@@ -928,10 +939,10 @@ into every rule.`,
 		},
 	}
 	cmd.Flags().StringVar(&searchEntityType, "type", "Service", "Root entity type (e.g. Service, Namespace, Node)")
-	cmd.Flags().StringArrayVar(&searchNames, "insight", nil, "Insight-name rule: op=value where op is contains, starts-with, or equals (repeatable; rules are ORed)")
+	cmd.Flags().StringArrayVar(&searchPropsRaw, "property", nil, "Filter by insight property: name=value (exact) or name=~value (contains); repeatable, rules are ORed. Only \"name\" is supported today.")
 	cmd.Flags().StringSliceVar(&searchSeverities, "severity", nil, "Filter by insight severity: critical, warning, info (comma-separated)")
 	searchScope.register(cmd)
-	cmd.MarkFlagsOneRequired("insight", "severity")
+	cmd.MarkFlagsOneRequired("property", "severity")
 	return cmd
 }
 
@@ -1113,18 +1124,12 @@ const (
 )
 
 // buildInsightSearchRequest assembles the request body for
-// POST /v1/assertions/search from CLI flags. Each --insight flag becomes
+// POST /v1/assertions/search from CLI flags. Each --property rule becomes
 // its own rule group; --severity values are appended into every group so they
 // AND with the name filter (matching the UI's setSeverity behavior).
 // When only severities are given, an "IS NOT NULL" name matcher is seeded so
 // the severity matchers have somewhere to attach.
-func buildInsightSearchRequest(entityType string, insightNames, severities []string, scope *ScopeCriteria, startMs, endMs int64) (InsightSearchRequest, error) {
-	nameOps := map[string]string{
-		"contains":    "CONTAINS",
-		"starts-with": "STARTS WITH",
-		"equals":      "=",
-	}
-
+func buildInsightSearchRequest(entityType string, properties []PropertyMatcher, severities []string, scope *ScopeCriteria, startMs, endMs int64) (InsightSearchRequest, error) {
 	severityMatchers := make([]LabelMatcher, 0, len(severities))
 	for _, sev := range severities {
 		sev = strings.TrimSpace(sev)
@@ -1138,18 +1143,13 @@ func buildInsightSearchRequest(entityType string, insightNames, severities []str
 		})
 	}
 
-	groups := make([]InsightSearchCriteria, 0, len(insightNames))
-	for _, raw := range insightNames {
-		op, value, ok := strings.Cut(raw, "=")
-		if !ok {
-			return InsightSearchRequest{}, fmt.Errorf("invalid --insight %q: expected op=value where op is one of contains, starts-with, equals", raw)
-		}
-		wireOp, ok := nameOps[strings.ToLower(strings.TrimSpace(op))]
-		if !ok {
-			return InsightSearchRequest{}, fmt.Errorf("invalid --insight op %q: must be one of contains, starts-with, equals", op)
+	groups := make([]InsightSearchCriteria, 0, len(properties))
+	for _, p := range properties {
+		if p.Name != "name" {
+			return InsightSearchRequest{}, fmt.Errorf("invalid --property name %q: only \"name\" is supported", p.Name)
 		}
 		matchers := make([]LabelMatcher, 0, 1+len(severityMatchers))
-		matchers = append(matchers, LabelMatcher{Name: insightNameLabel, Op: wireOp, Value: value})
+		matchers = append(matchers, LabelMatcher{Name: insightNameLabel, Op: p.Op, Value: p.Value})
 		matchers = append(matchers, severityMatchers...)
 		groups = append(groups, InsightSearchCriteria{LabelMatchers: matchers})
 	}
