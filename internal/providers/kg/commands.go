@@ -885,7 +885,7 @@ func newEntitiesCommand(loader RESTConfigLoader) *cobra.Command {
 func newEntitiesFindByInsightCommand(loader RESTConfigLoader) *cobra.Command {
 	var (
 		searchEntityType string
-		searchPropsRaw   []string
+		searchInsights   []string
 		searchSeverities []string
 		searchScope      scopeFlags
 	)
@@ -894,12 +894,12 @@ func newEntitiesFindByInsightCommand(loader RESTConfigLoader) *cobra.Command {
 		Short: "Find entities with active insights matching the given rules.",
 		Long: `Find entities with active insights matching the given rules.
 
-Each --property flag is a separate rule (ORed together); severities are ANDed
-into every rule. Only the "name" property is supported today.`,
-		Example: `  gcx kg entities find-by-insight --property name=~Saturation
-  gcx kg entities find-by-insight --property name=ErrorRatioBreach --severity critical
+Each --insight flag is a separate rule (ORed together); severities are ANDed
+into every rule. Prefix the value with ~ for a substring match.`,
+		Example: `  gcx kg entities find-by-insight --insight ~Saturation
+  gcx kg entities find-by-insight --insight ErrorRatioBreach --severity critical
   gcx kg entities find-by-insight --severity critical,warning --namespace mimir-prod-01
-  gcx kg entities find-by-insight --type Namespace --property name=~Latency --since 1h`,
+  gcx kg entities find-by-insight --type Namespace --insight ~Latency --since 1h`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := loader.LoadGrafanaConfig(cmd.Context())
 			if err != nil {
@@ -916,14 +916,17 @@ into every rule. Only the "name" property is supported today.`,
 			if err := searchScope.validateScopes(cmd.Context(), client); err != nil {
 				return err
 			}
-			matchers := make([]PropertyMatcher, 0, len(searchPropsRaw))
-			for _, raw := range searchPropsRaw {
-				pm, err := parsePropertyFlag(raw)
-				if err != nil {
-					return err
+			matchers := make([]PropertyMatcher, 0, len(searchInsights))
+			for _, raw := range searchInsights {
+				if strings.TrimSpace(raw) == "" {
+					return fmt.Errorf("--insight %q: empty value", raw)
 				}
-				if pm.Name != "name" {
-					return fmt.Errorf("--property %q: only the \"name\" property is supported", raw)
+				pm := PropertyMatcher{Name: "name", Op: "="}
+				if rest, ok := strings.CutPrefix(raw, "~"); ok {
+					pm.Op = "CONTAINS"
+					pm.Value = rest
+				} else {
+					pm.Value = raw
 				}
 				matchers = append(matchers, pm)
 			}
@@ -939,10 +942,10 @@ into every rule. Only the "name" property is supported today.`,
 		},
 	}
 	cmd.Flags().StringVar(&searchEntityType, "type", "Service", "Root entity type (e.g. Service, Namespace, Node)")
-	cmd.Flags().StringArrayVar(&searchPropsRaw, "property", nil, "Filter by insight property: name=value (exact) or name=~value (contains); repeatable, rules are ORed. Only \"name\" is supported today.")
+	cmd.Flags().StringArrayVar(&searchInsights, "insight", nil, "Filter by insight name: bare value for exact match, ~value for substring; repeatable, rules are ORed")
 	cmd.Flags().StringSliceVar(&searchSeverities, "severity", nil, "Filter by insight severity: critical, warning, info (comma-separated)")
 	searchScope.register(cmd)
-	cmd.MarkFlagsOneRequired("property", "severity")
+	cmd.MarkFlagsOneRequired("insight", "severity")
 	return cmd
 }
 
