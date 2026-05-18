@@ -78,7 +78,8 @@ cmd/gcx/
   linter/       Linting (mounted under dev lint)
   commands/     Commands catalog (agent metadata)
   helptree/     Help tree for agent context
-  setup/        Onboarding + instrumentation
+  setup/        Onboarding (gcx setup status)
+  instrumentation/  Instrumentation Hub commands (clusters, services, setup wizard, status)
   skills/       Portable Agent Skills installer for .agents-compatible tools
   dev/          Developer tools (import, scaffold, generate, lint, serve)
   fail/         Structured error conversion
@@ -89,9 +90,7 @@ internal/
 ├── login/       Login orchestration (target detection, auth resolution, connectivity validation, sentinel-retry flow)
 ├── config/      Config types, loader, editor, rest.Config builder, stack-id discovery, context name helpers
 ├── cloud/       GCOM HTTP client for Grafana Cloud stack discovery
-├── fleet/       Shared fleet base client (HTTP, auth, config — used by fleet provider and setup/instrumentation)
-├── setup/
-│   └── instrumentation/  Manifest types, instrumentation client, optimistic lock comparison
+├── fleet/       Shared fleet base client (HTTP, auth, config — used by fleet provider and instrumentation provider)
 ├── resources/
 │   ├── *.go     Core types: Resource, Selector, Filter, Descriptor, Resources collection
 │   ├── adapter/    ResourceAdapter interface, Factory, ResourceClientRouter, self-registration, slug-ID helpers
@@ -105,6 +104,11 @@ internal/
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`
 │   ├── fleet/      Fleet Management provider (pipeline and collector resources)
+│   ├── instrumentation/  Instrumentation Hub provider (typed connect-go client, RMW with optimistic-lock, output codecs, helm formatter, enumerate helper)
+│   │   ├── enumerate/  Cluster enumeration helper (RunK8sMonitoring ⋃ ListPipelines merge)
+│   │   ├── helm/       Helm command formatter for the setup wizard
+│   │   ├── output/     View types and codecs (clusters, apps, services; wait/mutation envelopes)
+│   │   └── rmw/        Read-modify-write helper with optimistic-lock guard (ConflictError)
 │   ├── irm/        IRM provider (OnCall + Incidents — schedules, integrations, escalation chains, incidents)
 │   ├── k6/         k6 Cloud provider (projects, tests, runs, envvars)
 │   ├── kg/         Knowledge Graph (Asserts) provider
@@ -112,22 +116,25 @@ internal/
 │   ├── metrics/    Metrics signal provider (Prometheus queries + Adaptive Metrics commands)
 │   ├── appo11y/    App Observability provider (overrides, settings — singleton resources)
 │   ├── profiles/   Profiles signal provider (Pyroscope queries + adaptive stub)
-│   ├── aio11y/     AI Observability provider (conversations, agents, generations, evaluators, rules, templates, scores, judge — via grafana-sigil-app plugin API)
+│   ├── aio11y/     AI Observability provider (conversations, agents, generations, evaluators, rules, templates, scores, judge, saved-conversations, collections — via grafana-sigil-app plugin API)
 │   ├── slo/        SLO provider (definitions, reports)
 │   ├── synth/      Synthetic Monitoring provider (checks, probes)
 │   └── traces/     Traces signal provider (Tempo queries + Adaptive Traces commands)
 ├── deeplink/    Deep link URL template registry and browser opener
 ├── dashboards/  Dashboard Image Renderer client (PNG snapshots)
 ├── datasources/ Datasource HTTP client, DatasourceProvider interface + registry
+│   ├── influxdb/  InfluxDB datasource command layer (query, field-keys, measurements)
 │   └── query/   Shared query CLI utils (time parsing, codecs, opts, resolve helpers — used by signal providers and GenericCmd)
 ├── query/       Datasource query clients
 │   ├── prometheus/  Prometheus HTTP query client
+│   ├── influxdb/    InfluxDB HTTP query client
 │   └── loki/        Loki HTTP query client
 ├── queryerror/  Typed API error for datasource query failures (APIError type, New/FromBody constructors, IsParseError helper)
 ├── assistant/   Assistant client (A2A streaming, prompt, state management)
 │   ├── assistanthttp/  Base HTTP client for grafana-assistant-app plugin API
 │   └── investigations/ Investigation CRUD commands, table codecs, API client
 ├── agent/       Agent mode detection, command annotations, known-resource registry with operation hints
+├── agentlog/    Agent invocation failure logger (opt-in JSONL disk log, XDG state dir — wired into handleError in cmd/gcx/main.go)
 ├── style/       Terminal styling (Grafana Neon Dark theme, TableBuilder, ASCII banner, glamour help)
 ├── terminal/    TTY/pipe detection (IsPiped, NoTruncate, Detect) for output suppression
 ├── linter/      Linting engine (Rego rules, report aggregation, PromQL/LogQL validators)
@@ -135,7 +142,7 @@ internal/
 ├── testutils/   Shared test utilities
 ├── server/      Live dev server (Chi router, reverse proxy, websocket reload)
 ├── grafana/     OpenAPI client (health checks, version detection)
-├── output/      Output codec registry (json, yaml, text, wide — field selection, discovery, k8s unstructured handling)
+├── output/      Output codec registry (json, yaml, text, wide, agents — field selection, discovery, k8s unstructured handling, temp-file spill)
 ├── format/      JSON/YAML codecs with format auto-detection
 ├── retry/       Retry transport (429, 502/503/504, transient connection errors — wraps all HTTP tiers)
 ├── httputils/   HTTP helpers (used by serve command's proxy)

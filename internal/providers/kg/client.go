@@ -25,14 +25,13 @@ const (
 	entityCountPath      = entityTypesPath + "/count"
 	scopesPath           = pluginResourcePath + "/asserts/api-server/v1/entity_scope"
 	assertionsPath       = pluginResourcePath + "/asserts/api-server/v1/assertions"
-	assertSummPath       = assertionsPath + "/summary"
-	assertGraphPath      = assertionsPath + "/graph"
 	assertMetricPath     = assertionsPath + "/entity-metric"
 	assertLLMPath        = assertionsPath + "/llm-summary"
 	sourceMetricPath     = pluginResourcePath + "/asserts/api-server/v1/assertion/source-metrics"
 	searchPath           = pluginResourcePath + "/asserts/api-server/v1/search"
 	searchAssertPath     = searchPath + "/assertions"
 	searchSamplePath     = searchPath + "/sample"
+	insightSearchPath    = pluginResourcePath + "/asserts/api-server/v1/assertions/search"
 	rulesPath            = pluginResourcePath + "/asserts/api-server/v1/config/prom-rules"
 	ruleByNameFmt        = rulesPath + "/%s"
 	modelRulesPath       = pluginResourcePath + "/asserts/api-server/v1/config/model-rules/"
@@ -340,14 +339,11 @@ func (c *Client) LookupEntity(ctx context.Context, entityType, name string, scop
 	return &result, nil
 }
 
-// CountEntityTypes retrieves entity type counts for the last hour.
-func (c *Client) CountEntityTypes(ctx context.Context) (map[string]int64, error) {
-	now := time.Now()
+// CountEntityTypes retrieves entity type counts for the given time window and scope.
+func (c *Client) CountEntityTypes(ctx context.Context, startMs, endMs int64, sc *ScopeCriteria) (map[string]int64, error) {
 	body := EntityCountRequest{
-		TimeCriteria: &TimeCriteria{
-			Start: now.Add(-1 * time.Hour).UnixMilli(),
-			End:   now.UnixMilli(),
-		},
+		TimeCriteria:  &TimeCriteria{Start: startMs, End: endMs},
+		ScopeCriteria: sc,
 	}
 	var result map[string]int64
 	if err := c.postJSON(ctx, entityCountPath, body, &result); err != nil {
@@ -371,36 +367,6 @@ func (c *Client) ListEntityScopes(ctx context.Context) (map[string][]string, err
 // Assertions operations
 // ---------------------------------------------------------------------------
 
-// QueryAssertions queries assertions for a given time range and filters.
-func (c *Client) QueryAssertions(ctx context.Context, req AssertionsRequest) ([]AssertionTimeline, error) {
-	var result []AssertionTimeline
-	if err := c.postJSON(ctx, assertionsPath, req, &result); err != nil {
-		return nil, fmt.Errorf("kg: query assertions: %w", err)
-	}
-	if result == nil {
-		return []AssertionTimeline{}, nil
-	}
-	return result, nil
-}
-
-// AssertionsSummary returns a summary of assertions for a given time range and filters.
-func (c *Client) AssertionsSummary(ctx context.Context, req AssertionsRequest) (*AssertionSummary, error) {
-	var result AssertionSummary
-	if err := c.postJSON(ctx, assertSummPath, req, &result); err != nil {
-		return nil, fmt.Errorf("kg: assertions summary: %w", err)
-	}
-	return &result, nil
-}
-
-// AssertionsGraph queries assertions with graph topology.
-func (c *Client) AssertionsGraph(ctx context.Context, req AssertionsRequest) (*AssertionsGraphResponse, error) {
-	var result AssertionsGraphResponse
-	if err := c.postJSON(ctx, assertGraphPath, req, &result); err != nil {
-		return nil, fmt.Errorf("kg: assertions graph: %w", err)
-	}
-	return &result, nil
-}
-
 // AssertionEntityMetric retrieves metric data for a specific assertion on an entity.
 func (c *Client) AssertionEntityMetric(ctx context.Context, req EntityMetricRequest) (*EntityMetricResponse, error) {
 	var result EntityMetricResponse
@@ -423,20 +389,40 @@ func (c *Client) AssertionSourceMetrics(ctx context.Context, req SourceMetricsRe
 // Search operations
 // ---------------------------------------------------------------------------
 
+// SearchPage is one page of entity search results plus the backend's
+// pagination signals. LastPage is true when no further pages exist;
+// MaxLimitHit is true when the backend's per-page result cap was reached
+// (i.e. the page is truncated and a subsequent --page would return more).
+type SearchPage struct {
+	Entities    []SearchResult
+	PageNum     int
+	LastPage    bool
+	MaxLimitHit bool
+}
+
 // Search searches for entities matching the given request.
-func (c *Client) Search(ctx context.Context, req SearchRequest) ([]SearchResult, error) {
+func (c *Client) Search(ctx context.Context, req SearchRequest) (SearchPage, error) {
 	var wrapper struct {
 		Data struct {
-			Entities []SearchResult `json:"entities"`
+			Entities                 []SearchResult `json:"entities"`
+			PageNum                  int            `json:"pageNum"`
+			LastPage                 bool           `json:"lastPage"`
+			SearchResultsMaxLimitHit bool           `json:"searchResultsMaxLimitHit"`
 		} `json:"data"`
 	}
 	if err := c.postJSON(ctx, searchPath, req, &wrapper); err != nil {
-		return nil, fmt.Errorf("kg: search: %w", err)
+		return SearchPage{}, fmt.Errorf("kg: search: %w", err)
 	}
-	if wrapper.Data.Entities == nil {
-		return []SearchResult{}, nil
+	entities := wrapper.Data.Entities
+	if entities == nil {
+		entities = []SearchResult{}
 	}
-	return wrapper.Data.Entities, nil
+	return SearchPage{
+		Entities:    entities,
+		PageNum:     wrapper.Data.PageNum,
+		LastPage:    wrapper.Data.LastPage,
+		MaxLimitHit: wrapper.Data.SearchResultsMaxLimitHit,
+	}, nil
 }
 
 // SearchAssertions searches for assertion timelines matching the given query.
@@ -447,6 +433,20 @@ func (c *Client) SearchAssertions(ctx context.Context, req SearchRequest) ([]Ass
 	}
 	if result == nil {
 		return []AssertionTimeline{}, nil
+	}
+	return result, nil
+}
+
+// SearchInsights finds entities with active assertions matching the given
+// label-matcher rules. Backed by POST /v1/assertions/search — the same endpoint
+// the Asserts UI's "Entities with Insights" panel uses.
+func (c *Client) SearchInsights(ctx context.Context, req InsightSearchRequest) ([]EntityKey, error) {
+	var result []EntityKey
+	if err := c.postJSON(ctx, insightSearchPath, req, &result); err != nil {
+		return nil, fmt.Errorf("kg: search insights: %w", err)
+	}
+	if result == nil {
+		return []EntityKey{}, nil
 	}
 	return result, nil
 }
