@@ -3,9 +3,12 @@ package k6
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 
+	"github.com/grafana/gcx/internal/config"
 	"github.com/grafana/gcx/internal/httputils"
 	"github.com/grafana/gcx/internal/providers"
 	"github.com/grafana/gcx/internal/resources"
@@ -60,35 +63,111 @@ func allResources() []resourceDef {
 // and provider-specific config for the k6 provider.
 type CloudConfigLoader interface {
 	LoadCloudConfig(ctx context.Context) (providers.CloudRESTConfig, error)
+	LoadGrafanaConfig(ctx context.Context) (config.NamespacedRESTConfig, error)
 	LoadProviderConfig(ctx context.Context, providerName string) (map[string]string, string, error)
+	SaveProviderConfig(ctx context.Context, providerName, key, value string) error
 }
 
+// Provider config keys used for cross-invocation auth caching.
+const (
+	keyCachedToken   = "cached-token"
+	keyCachedOrgID   = "cached-org-id"
+	keyCachedStackID = "cached-stack-id"
+)
+
 // authenticatedClient loads cloud config, resolves the k6 API domain from provider config,
-// performs k6 token exchange, and returns an authenticated client.
+// performs k6 token exchange (or reuses a cached one), and returns an authenticated client.
 func authenticatedClient(ctx context.Context, loader CloudConfigLoader) (*Client, string, error) {
 	cfg, err := loader.LoadCloudConfig(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("k6: load cloud config: %w", err)
 	}
 
+	providerCfg, _, _ := loader.LoadProviderConfig(ctx, "k6")
 	domain := DefaultAPIDomain
-	if providerCfg, _, err := loader.LoadProviderConfig(ctx, "k6"); err == nil {
-		if d := providerCfg["api-domain"]; d != "" {
-			domain = d
+	if d := providerCfg["api-domain"]; d != "" {
+		domain = d
+	}
+
+	// k6 API uses its own auth (Bearer v3 token), not the Grafana bearer token.
+	// Using rest.HTTPClientFor() would inject the Grafana bearer token via the
+	// k8s transport round-tripper, causing 401 from the k6 API.
+	httpClient := httputils.NewDefaultClient(ctx)
+	client := NewClient(ctx, domain, httpClient)
+
+	exchange := func(ctx context.Context) (string, int, error) {
+		grafanaCfg, err := loader.LoadGrafanaConfig(ctx)
+		if err != nil {
+			return "", 0, fmt.Errorf("k6: load grafana config: %w", err)
+		}
+		if grafanaCfg.BearerToken == "" {
+			return "", 0, errors.New("k6: grafana.token is required (must be a glsa_* service-account token); OAuth/proxy auth not yet supported on this path")
+		}
+		if err := client.Authenticate(ctx, grafanaCfg.BearerToken, cfg.Stack.ID); err != nil {
+			return "", 0, fmt.Errorf("k6 auth failed (PUT %s): %w -- ensure your token has k6 scopes", authPath, err)
+		}
+		persistCache(ctx, loader, client.Token(), client.OrgID(), cfg.Stack.ID)
+		return client.Token(), client.OrgID(), nil
+	}
+
+	// On 401 from any subsequent k6 API call, drop the cache and re-exchange.
+	client.SetReauth(func(ctx context.Context) (string, int, error) {
+		clearCache(ctx, loader)
+		return exchange(ctx)
+	})
+
+	// Cached path: skip /start if we have a token bound to the current stack.
+	if cachedTok, cachedOrg, ok := loadCache(providerCfg, cfg.Stack.ID); ok {
+		client.SetCachedAuth(cachedTok, cachedOrg, cfg.Stack.ID)
+		return client, cfg.Namespace, nil
+	}
+
+	// Cold path: full exchange and persist.
+	if _, _, err := exchange(ctx); err != nil {
+		return nil, "", err
+	}
+	return client, cfg.Namespace, nil
+}
+
+// loadCache returns the cached k6 credentials if the cache is bound to the
+// current stack ID. A mismatch (stack changed) is treated as a miss; callers
+// should fall back to a fresh exchange, which will overwrite the stale entry.
+func loadCache(providerCfg map[string]string, currentStackID int) (string, int, bool) {
+	if providerCfg == nil {
+		return "", 0, false
+	}
+	tok := providerCfg[keyCachedToken]
+	cachedStack, errStack := strconv.Atoi(providerCfg[keyCachedStackID])
+	cachedOrg, errOrg := strconv.Atoi(providerCfg[keyCachedOrgID])
+	if tok == "" || errStack != nil || errOrg != nil || cachedStack != currentStackID {
+		return "", 0, false
+	}
+	return tok, cachedOrg, true
+}
+
+// persistCache writes the cached fields back to the config under
+// providers.k6.* so subsequent invocations skip the /start round-trip.
+// Save failures are non-fatal: the in-memory client still works for this run.
+func persistCache(ctx context.Context, loader CloudConfigLoader, token string, orgID, stackID int) {
+	saves := []struct{ key, val string }{
+		{keyCachedToken, token},
+		{keyCachedOrgID, strconv.Itoa(orgID)},
+		{keyCachedStackID, strconv.Itoa(stackID)},
+	}
+	for _, s := range saves {
+		if err := loader.SaveProviderConfig(ctx, "k6", s.key, s.val); err != nil {
+			slog.DebugContext(ctx, "k6: failed to persist cached auth", "key", s.key, "error", err)
 		}
 	}
+}
 
-	// k6 API uses its own auth (X-Grafana-Key token exchange), not the Grafana
-	// bearer token. Using rest.HTTPClientFor() would inject the Grafana bearer
-	// token via the k8s transport round-tripper, causing 401 from the k6 API.
-	httpClient := httputils.NewDefaultClient(ctx)
-
-	client := NewClient(ctx, domain, httpClient)
-	if err := client.Authenticate(ctx, cfg.Token, cfg.Stack.ID); err != nil {
-		return nil, "", fmt.Errorf("k6 auth failed (PUT %s): %w -- ensure your token has k6 scopes", authPath, err)
+// clearCache wipes the persisted cache. Called when a cached token is rejected.
+func clearCache(ctx context.Context, loader CloudConfigLoader) {
+	for _, key := range []string{keyCachedToken, keyCachedOrgID, keyCachedStackID} {
+		if err := loader.SaveProviderConfig(ctx, "k6", key, ""); err != nil {
+			slog.DebugContext(ctx, "k6: failed to clear cached auth", "key", key, "error", err)
+		}
 	}
-
-	return client, cfg.Namespace, nil
 }
 
 // newSubResourceFactory returns a lazy adapter.Factory for a specific k6 resource.

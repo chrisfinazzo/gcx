@@ -3,8 +3,10 @@ package k6_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/grafana/gcx/internal/providers/k6"
@@ -717,6 +719,159 @@ func TestClient_UpdateAllowedLoadZones(t *testing.T) {
 	client := newAuthenticatedClient(t, handler)
 	err := client.UpdateAllowedLoadZones(t.Context(), 1, []int{100, 200})
 	require.NoError(t, err)
+}
+
+func TestClient_401WithReauthRetries(t *testing.T) {
+	var apiCalls atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v3/account/grafana-app/start" {
+			w.Header().Set("Content-Type", "application/json")
+			writeJSON(t, w, map[string]any{
+				"organization_id":  "42",
+				"v3_grafana_token": "old-token",
+			})
+			return
+		}
+		call := apiCalls.Add(1)
+		if call == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		assert.Equal(t, "Bearer new-token", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(t, w, map[string]any{"value": []any{}})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := k6.NewClient(context.Background(), srv.URL, nil)
+	err := client.Authenticate(t.Context(), "initial-grafana-token", 999)
+	require.NoError(t, err)
+
+	client.SetReauth(func(_ context.Context) (string, int, error) {
+		return "new-token", 42, nil
+	})
+
+	projects, err := client.ListProjects(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, projects)
+	assert.Equal(t, int32(2), apiCalls.Load())
+	assert.Equal(t, "new-token", client.Token())
+}
+
+func TestClient_401WithReauthFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v3/account/grafana-app/start" {
+			w.Header().Set("Content-Type", "application/json")
+			writeJSON(t, w, map[string]any{
+				"organization_id":  "42",
+				"v3_grafana_token": "old-token",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := k6.NewClient(context.Background(), srv.URL, nil)
+	err := client.Authenticate(t.Context(), "initial-grafana-token", 999)
+	require.NoError(t, err)
+
+	client.SetReauth(func(_ context.Context) (string, int, error) {
+		return "", 0, errors.New("credential expired")
+	})
+
+	_, err = client.ListProjects(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "k6: reauth after 401:")
+	assert.Contains(t, err.Error(), "credential expired")
+}
+
+func TestClient_401WithoutReauthPropagates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v3/account/grafana-app/start" {
+			w.Header().Set("Content-Type", "application/json")
+			writeJSON(t, w, map[string]any{
+				"organization_id":  "42",
+				"v3_grafana_token": "old-token",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := k6.NewClient(context.Background(), srv.URL, nil)
+	err := client.Authenticate(t.Context(), "initial-grafana-token", 999)
+	require.NoError(t, err)
+
+	// No SetReauth call — 401 should propagate as an error.
+	_, err = client.ListProjects(t.Context())
+	require.Error(t, err)
+}
+
+func TestClient_SetCachedAuth_UsesCredentialsInRequests(t *testing.T) {
+	var capturedAuth, capturedStackID string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedStackID = r.Header.Get("X-Stack-Id")
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(t, w, map[string]any{"value": []any{}})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := k6.NewClient(context.Background(), srv.URL, nil)
+	client.SetCachedAuth("cached-v3-token", 42, 999)
+
+	assert.Equal(t, 42, client.OrgID())
+	assert.Equal(t, "cached-v3-token", client.Token())
+
+	projects, err := client.ListProjects(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, projects)
+	assert.Equal(t, "Bearer cached-v3-token", capturedAuth)
+	assert.Equal(t, "999", capturedStackID)
+}
+
+func TestClient_doRaw_401WithReauthRetries(t *testing.T) {
+	var scriptCalls atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v3/account/grafana-app/start" {
+			w.Header().Set("Content-Type", "application/json")
+			writeJSON(t, w, map[string]any{
+				"organization_id":  "42",
+				"v3_grafana_token": "old-token",
+			})
+			return
+		}
+		if r.Method == http.MethodPut && r.URL.Path == "/cloud/v6/load_tests/5/script" {
+			call := scriptCalls.Add(1)
+			if call == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			assert.Equal(t, "Bearer new-token", r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := k6.NewClient(context.Background(), srv.URL, nil)
+	err := client.Authenticate(t.Context(), "initial-grafana-token", 999)
+	require.NoError(t, err)
+
+	client.SetReauth(func(_ context.Context) (string, int, error) {
+		return "new-token", 42, nil
+	})
+
+	err = client.UpdateLoadTestScript(t.Context(), 5, "export default function() {}")
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), scriptCalls.Load())
+	assert.Equal(t, "new-token", client.Token())
 }
 
 func writeJSON(t *testing.T, w http.ResponseWriter, v any) {

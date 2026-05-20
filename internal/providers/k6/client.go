@@ -29,14 +29,20 @@ const (
 	plzPath        = "/cloud-resources/v1/load-zones"
 )
 
+// ReauthFunc refreshes the k6 auth credentials when a cached token is rejected.
+// It must perform a fresh /start exchange, persist the new credentials, and
+// return them so the caller can update the Client's in-memory state.
+type ReauthFunc func(ctx context.Context) (token string, orgID int, err error)
+
 // Client is an HTTP client for the k6 Cloud API.
-// It must be authenticated before use by calling Authenticate.
+// It must be authenticated before use by calling Authenticate or SetCachedAuth.
 type Client struct {
 	apiDomain string
 	orgID     int
 	stackID   int
 	token     string
 	http      *http.Client
+	reauth    ReauthFunc // optional; invoked when the server returns 401.
 }
 
 // NewClient creates a new k6 Cloud client with the given API domain.
@@ -107,29 +113,81 @@ func (c *Client) OrgID() int { return c.orgID }
 // Token returns the authenticated k6 v3 token.
 func (c *Client) Token() string { return c.token }
 
+// SetCachedAuth populates the client with previously-exchanged credentials,
+// skipping the /v3/account/grafana-app/start round-trip. The caller is
+// responsible for invalidating the cache and re-authenticating if these
+// credentials are rejected — wire that via SetReauth.
+func (c *Client) SetCachedAuth(token string, orgID, stackID int) {
+	c.token = token
+	c.orgID = orgID
+	c.stackID = stackID
+}
+
+// SetReauth registers a callback used to refresh credentials when a request
+// is rejected with 401. Without it, 401s propagate to the caller as-is.
+func (c *Client) SetReauth(fn ReauthFunc) { c.reauth = fn }
+
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("k6: marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(b)
+		bodyBytes = b
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.apiDomain+path, bodyReader)
+	build := func() (*http.Request, error) {
+		var br io.Reader
+		if bodyBytes != nil {
+			br = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.apiDomain+path, br)
+		if err != nil {
+			return nil, fmt.Errorf("k6: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("X-Stack-Id", strconv.Itoa(c.stackID))
+		return req, nil
+	}
+
+	return c.doWithReauth(ctx, build)
+}
+
+// doWithReauth executes the request, and if it returns 401 and a reauth
+// callback is wired, invokes the callback once and retries with refreshed
+// credentials. The request is rebuilt for the retry so headers (including
+// Authorization) pick up the new token and the body reader is reset.
+func (c *Client) doWithReauth(ctx context.Context, build func() (*http.Request, error)) (*http.Response, error) {
+	req, err := build()
 	if err != nil {
-		return nil, fmt.Errorf("k6: create request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("X-Stack-Id", strconv.Itoa(c.stackID))
+	resp, err := c.http.Do(req)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || c.reauth == nil {
+		return resp, err
+	}
+	// Cached credentials are stale; drain and discard the 401, refresh, retry once.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
-	return c.http.Do(req)
+	token, orgID, err := c.reauth(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("k6: reauth after 401: %w", err)
+	}
+	c.token = token
+	c.orgID = orgID
+
+	req2, err := build()
+	if err != nil {
+		return nil, err
+	}
+	return c.http.Do(req2)
 }
 
 func decodeJSON[T any](resp *http.Response) (T, error) {
@@ -150,18 +208,36 @@ func readErrorBody(resp *http.Response) string {
 
 // doRaw performs a raw HTTP request with Bearer + X-Stack-Id headers.
 // Used for multipart/form-data and application/octet-stream requests.
+// The body is buffered so the request can be retried with refreshed
+// credentials on 401 when SetReauth is wired.
 func (c *Client) doRaw(ctx context.Context, method, path, contentType string, body io.Reader) (int, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.apiDomain+path, body)
-	if err != nil {
-		return 0, nil, fmt.Errorf("k6: create raw request: %w", err)
+	var bodyBytes []byte
+	if body != nil {
+		buf, err := io.ReadAll(body)
+		if err != nil {
+			return 0, nil, fmt.Errorf("k6: buffer raw request body: %w", err)
+		}
+		bodyBytes = buf
 	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("X-Stack-Id", strconv.Itoa(c.stackID))
 
-	resp, err := c.http.Do(req)
+	build := func() (*http.Request, error) {
+		var br io.Reader
+		if bodyBytes != nil {
+			br = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.apiDomain+path, br)
+		if err != nil {
+			return nil, fmt.Errorf("k6: create raw request: %w", err)
+		}
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("X-Stack-Id", strconv.Itoa(c.stackID))
+		return req, nil
+	}
+
+	resp, err := c.doWithReauth(ctx, build)
 	if err != nil {
 		return 0, nil, fmt.Errorf("k6: raw request: %w", err)
 	}

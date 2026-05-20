@@ -59,6 +59,13 @@ func (p *K6Provider) Validate(cfg map[string]string) error {
 func (p *K6Provider) ConfigKeys() []providers.ConfigKey {
 	return []providers.ConfigKey{
 		{Name: "api-domain"},
+		// Cached auth from /v3/account/grafana-app/start. Populated lazily on
+		// first run; reused on subsequent invocations to skip the round-trip.
+		// Invalidated on 401 from any k6 API call. Bound to a specific stack
+		// via cached-stack-id; cache is dropped if the stack changes.
+		{Name: "cached-token", Secret: true},
+		{Name: "cached-org-id"},
+		{Name: "cached-stack-id"},
 	}
 }
 
