@@ -59,7 +59,9 @@ type RecommendationAction struct {
 // round-trips unchanged without requiring CLI releases.
 //
 // Updates always replace the entire document — the API does not support
-// partial patches today.
+// partial patches today. Callers should `show` the current config, mutate
+// the returned map, then `set` it back; any field omitted from the set
+// payload is dropped, not preserved.
 type Config map[string]any
 
 // Recommendation represents an adaptive traces sampling recommendation.
