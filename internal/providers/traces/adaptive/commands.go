@@ -744,8 +744,11 @@ func (h *tracesHelper) configSetCommand() *cobra.Command {
 	return cmd
 }
 
-// maxConfigFileSize is the maximum size of a config file (10 MB).
-const maxConfigFileSize = 10 << 20
+// maxConfigFileSize is the maximum size of a config file (512 KB). The config
+// document holds a sampling percentage, feature flags, and a list of
+// user-defined condition rules — generous headroom for ~1.5k–2k condition
+// entries while still rejecting accidentally-piped large payloads early.
+const maxConfigFileSize = 512 << 10
 
 func readConfigFromFile(filePath string, stdin io.Reader) (Config, error) {
 	var reader io.Reader
