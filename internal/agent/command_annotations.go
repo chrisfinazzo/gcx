@@ -38,6 +38,14 @@ var commandAnnotations = map[string]annotation{
 	"gcx assistant investigations timeline":  {Cost: "medium", Hint: "<id> -o json"},
 	"gcx assistant investigations todos":     {Cost: "medium", Hint: "<id> -o json"},
 
+	// assistant integrations
+	"gcx assistant integrations list":     {Cost: "small"},
+	"gcx assistant integrations get":      {Cost: "medium", Hint: "<id> -o json"},
+	"gcx assistant integrations create":   {Cost: "small"},
+	"gcx assistant integrations update":   {Cost: "small"},
+	"gcx assistant integrations delete":   {Cost: "small"},
+	"gcx assistant integrations validate": {Cost: "medium", Hint: "<id> -o json"},
+
 	// login
 	"gcx login": {Cost: "small", Hint: "Non-interactive: gcx login <ctx> --yes --server <url> --token <grafana-sa-token> [--cloud-token <cap-token>]. Service-account tokens (--token) are created inside the Grafana instance — see https://grafana.com/docs/grafana/latest/administration/service-accounts.md. Cloud access-policy tokens (--cloud-token) are created at grafana.com — see https://grafana.com/docs/grafana-cloud/security-and-account-management/authentication-and-permissions/access-policies/create-access-policies.md. Append .md to any grafana.com/docs URL to fetch markdown. Do not guess token URLs."},
 
