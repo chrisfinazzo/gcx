@@ -7,6 +7,7 @@ import (
 	"github.com/grafana/gcx/internal/format"
 	"github.com/grafana/gcx/internal/graph"
 	cmdio "github.com/grafana/gcx/internal/output"
+	"github.com/grafana/gcx/internal/query/cloudwatch"
 	"github.com/grafana/gcx/internal/query/infinity"
 	"github.com/grafana/gcx/internal/query/influxdb"
 	"github.com/grafana/gcx/internal/query/loki"
@@ -41,6 +42,8 @@ func (c *queryTableCodec) Encode(w io.Writer, data any) error {
 		return influxdb.FormatQueryTable(w, resp)
 	case *tempo.GetTraceResponse:
 		return tempo.FormatTraceTable(w, resp)
+	case *cloudwatch.QueryResponse:
+		return cloudwatch.FormatTable(w, resp)
 	default:
 		return errors.New("invalid data type for query table codec")
 	}
@@ -68,6 +71,8 @@ func (c *queryWideCodec) Encode(w io.Writer, data any) error {
 		return infinity.FormatTable(w, resp)
 	case *tempo.GetTraceResponse:
 		return tempo.FormatTraceWide(w, resp)
+	case *cloudwatch.QueryResponse:
+		return cloudwatch.FormatWide(w, resp)
 	default:
 		return errors.New("invalid data type for query wide codec")
 	}
@@ -102,6 +107,11 @@ func (c *queryGraphCodec) Encode(w io.Writer, data any) error {
 		}
 	case *pyroscope.QueryResponse:
 		chartData, err = graph.FromPyroscopeResponse(resp)
+		if err != nil {
+			return err
+		}
+	case *cloudwatch.QueryResponse:
+		chartData, err = graph.FromCloudWatchResponse(resp)
 		if err != nil {
 			return err
 		}
