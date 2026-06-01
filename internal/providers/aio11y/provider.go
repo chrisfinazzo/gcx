@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/gcx/internal/providers/aio11y/eval/savedconversations"
 	"github.com/grafana/gcx/internal/providers/aio11y/eval/templates"
 	"github.com/grafana/gcx/internal/providers/aio11y/generations"
+	"github.com/grafana/gcx/internal/providers/aio11y/login"
 	"github.com/grafana/gcx/internal/providers/aio11y/scores"
 	"github.com/grafana/gcx/internal/resources/adapter"
 	"github.com/spf13/cobra"
@@ -122,7 +123,13 @@ func (p *AIO11yProvider) Commands() []*cobra.Command {
 		agent.AnnotationLLMHint:   `gcx aio11y experiments list -o json; gcx aio11y experiments get <run-id> -o yaml; gcx aio11y experiments scores <run-id> -o json; gcx aio11y experiments report <run-id> -o json`,
 	}
 
-	aio11yCmd.AddCommand(convsCmd, agentsCmd, evaluatorsCmd, rulesCmd, guardsCmd, templatesCmd, generationsCmd, scoresCmd, judgeCmd, savedConvsCmd, collectionsCmd, experimentsCmd)
+	loginCmd := login.Command(loader)
+	loginCmd.Annotations = map[string]string{
+		agent.AnnotationTokenCost: "low",
+		agent.AnnotationLLMHint:   `gcx aio11y login provisions ~/.config/sigil/config.env from the current Cloud context for coding-agent plugins. By default it mints a dedicated, scoped Cloud Access Policy token (needs accesspolicies:write on the context token; otherwise it falls back to the context token). Use --no-provision to write the context token as-is, --token to supply your own, or --dry-run -o json to preview without minting or writing.`,
+	}
+
+	aio11yCmd.AddCommand(convsCmd, agentsCmd, evaluatorsCmd, rulesCmd, guardsCmd, templatesCmd, generationsCmd, scoresCmd, judgeCmd, savedConvsCmd, collectionsCmd, experimentsCmd, loginCmd)
 
 	return []*cobra.Command{aio11yCmd}
 }
