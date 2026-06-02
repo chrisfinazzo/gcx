@@ -43,20 +43,35 @@ There is no `--team-id` filter. List every schedule and keep the team associatio
 gcx irm oncall schedules list -o json | jq -r '.[] | "\(.metadata.name)\t\(.spec.name)\t\(.spec.team // "-")"'
 ```
 
-### 1.3 Find the user's shifts (last 30 days)
+### 1.3 Narrow to the user's schedules
 
-`final-shifts` resolves the rendered rotation for a schedule between two dates. Flags are `--start` / `--end` (format `YYYY-MM-DD`), **not** `--start-date` / `--end-date`. Compute the dates relative to today (today's date is available in context; e.g. start = today − 30 days, end = today).
+Do **not** run `final-shifts` against every schedule — a real stack has 100+ and that is hundreds of calls. Instead, find the handful the user is actually rostered on. `shifts list` returns the rotation *rules*, each carrying `spec.rolling_users` (the people in rotation, as priority-ordered groups) and `spec.schedule`. Filter for the user PK from 1.1:
 
-For each schedule ID, fetch final shifts and keep only the rows matching the user's email:
+```bash
+gcx irm oncall shifts list -o json \
+  | jq -r --arg pk "<user-pk>" '.[] | select(((.spec.rolling_users // []) | flatten) | index($pk)) | .spec.schedule' | sort -u
+```
+
+This yields the candidate schedule IDs in one command. (`shifts list` can be large and take a few seconds — that is expected.)
+
+> Fallback: rotations driven by an iCal feed or web overrides have no `rolling_users`, so a user covered only that way won't appear here. If the user expects a shift that this step misses, fall back to scanning the schedules from 1.2 directly with `final-shifts` (one command each — still no loops).
+
+### 1.4 Resolve the user's shifts (last 30 days)
+
+`final-shifts` resolves the rendered rotation for a schedule between two dates. Flags are `--start` / `--end` (format `YYYY-MM-DD`), **not** `--start-date` / `--end-date`. It returns historical windows, so compute the dates relative to today (today's date is available in context; e.g. start = today − 30 days, end = today).
+
+For each **candidate** schedule from 1.3, fetch final shifts and keep only the rows matching the user's email:
 
 ```bash
 gcx irm oncall schedules final-shifts <schedule-id> --start <YYYY-MM-DD> --end <YYYY-MM-DD> -o json \
   | jq -r '.[] | select(.user_email == "<email>") | "\(.shift_start)\t\(.shift_end)\t\(.user_email)"'
 ```
 
-Run this once per schedule (each as a separate command — no loops). Skip schedules that return no matching shifts; do not investigate them further.
+Run this once per candidate schedule (each as a separate command — no loops). Skip schedules that return no matching shifts; do not investigate them further.
 
-### 1.4 Pick the most recent shift
+> Requires a gcx build that queries `filter_events` with the correct `date` parameter (and a valid timezone). Older builds silently ignore the start date and return only current/future shifts — if `final-shifts` never returns anything before today on any schedule, the gcx binary predates that fix; update gcx.
+
+### 1.5 Pick the most recent shift
 
 Across all matched shifts, select the one with the latest `shift_start` that is at or before now (the current or just-ended shift). Record its `shift_start`, `shift_end`, the **schedule ID**, and that schedule's **team**. That is the shift this report covers.
 
