@@ -56,7 +56,7 @@ func (c *Client) Query(ctx context.Context, datasourceUID string, req QueryReque
 			query["intervalMs"] = req.Step.Milliseconds()
 		}
 	} else {
-		if req.Instant && !req.Start.IsZero() {
+		if !req.Start.IsZero() {
 			from = strconv.FormatInt(req.Start.Add(-time.Minute).UnixMilli(), 10)
 			to = strconv.FormatInt(req.Start.UnixMilli(), 10)
 		} else {
@@ -164,7 +164,7 @@ func (c *Client) MetricQuery(ctx context.Context, datasourceUID string, req Quer
 			query["intervalMs"] = req.Step.Milliseconds()
 		}
 	} else {
-		if req.Instant && !req.Start.IsZero() {
+		if !req.Start.IsZero() {
 			from = strconv.FormatInt(req.Start.Add(-time.Minute).UnixMilli(), 10)
 			to = strconv.FormatInt(req.Start.UnixMilli(), 10)
 		} else {

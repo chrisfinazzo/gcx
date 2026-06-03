@@ -6,17 +6,16 @@ import (
 
 // QueryRequest represents a Loki query request.
 type QueryRequest struct {
-	Query   string
-	Start   time.Time
-	End     time.Time
-	Step    time.Duration
-	Limit   int
-	Instant bool // true when --time is used; Start is the evaluation anchor
+	Query string
+	Start time.Time
+	End   time.Time
+	Step  time.Duration
+	Limit int
 }
 
 // IsRange returns true if this is a range query.
 func (r QueryRequest) IsRange() bool {
-	return !r.Instant && !r.Start.IsZero() && !r.End.IsZero()
+	return !r.Start.IsZero() && !r.End.IsZero()
 }
 
 // QueryResponse represents the response from a Loki query.

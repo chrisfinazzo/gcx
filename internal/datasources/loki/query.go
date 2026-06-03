@@ -91,9 +91,7 @@ open it in your browser after the query succeeds.`,
 				return err
 			}
 
-			// --time: instant query anchored at a specific timestamp
-			instant := shared.Time != ""
-			if instant {
+			if shared.Time != "" {
 				t, err := dsquery.ParseTime(shared.Time, now)
 				if err != nil {
 					return fmt.Errorf("invalid --time value: %w", err)
@@ -107,12 +105,11 @@ open it in your browser after the query succeeds.`,
 			}
 
 			req := loki.QueryRequest{
-				Query:   expr,
-				Start:   start,
-				End:     end,
-				Step:    step,
-				Limit:   limit,
-				Instant: instant,
+				Query: expr,
+				Start: start,
+				End:   end,
+				Step:  step,
+				Limit: limit,
 			}
 
 			resp, err := client.Query(ctx, datasourceUID, req)
