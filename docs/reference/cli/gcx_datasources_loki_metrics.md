@@ -13,8 +13,7 @@ Unlike 'logs query' which returns log lines, 'logs metrics' returns
 time-series data with proper table, graph, and JSON formatters.
 
 Instant vs range is deduced from time flags: no time flags = instant query,
---since or --from/--to = range query. --time is also an instant query,
-evaluated over a 1-minute window ending at the given timestamp.
+--since or --from/--to = range query.
 Use --share-link to print the equivalent Grafana Explore URL, or --open to
 open it in your browser after the query succeeds.
 
@@ -28,9 +27,6 @@ gcx datasources loki metrics [EXPR] [flags]
 
   # Rate of log lines over 5 minutes
   gcx datasources loki metrics 'rate({job="varlogs"}[5m])' --since 1h -o table
-
-  # Instant metric query at a specific time
-  gcx datasources loki metrics 'rate({job="varlogs"}[5m])' --time 2026-01-15T10:30:00Z
 
   # Count of error logs
   gcx datasources loki metrics 'count_over_time({job="varlogs"} |= "error" [5m])' --since 1h
@@ -58,7 +54,6 @@ gcx datasources loki metrics [EXPR] [flags]
       --share-link          Print the Grafana Explore URL for the executed query to stderr
       --since string        Duration before --to (or now if omitted); mutually exclusive with --from
       --step string         Query step (e.g., '15s', '1m')
-      --time string         Evaluation time for an instant query (RFC3339, Unix timestamp, or relative like 'now-5m'). Mutually exclusive with --from/--to/--since
       --to string           End time (RFC3339, Unix timestamp, or relative like 'now')
 ```
 

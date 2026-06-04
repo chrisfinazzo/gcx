@@ -32,16 +32,12 @@ Unlike 'logs query' which returns log lines, 'logs metrics' returns
 time-series data with proper table, graph, and JSON formatters.
 
 Instant vs range is deduced from time flags: no time flags = instant query,
---since or --from/--to = range query. --time is also an instant query,
-evaluated over a 1-minute window ending at the given timestamp.
+--since or --from/--to = range query.
 Use --share-link to print the equivalent Grafana Explore URL, or --open to
 open it in your browser after the query succeeds.`,
 		Example: `
   # Rate of log lines over 5 minutes
   gcx datasources loki metrics 'rate({job="varlogs"}[5m])' --since 1h -o table
-
-  # Instant metric query at a specific time
-  gcx datasources loki metrics 'rate({job="varlogs"}[5m])' --time 2026-01-15T10:30:00Z
 
   # Count of error logs
   gcx datasources loki metrics 'count_over_time({job="varlogs"} |= "error" [5m])' --since 1h
@@ -92,14 +88,6 @@ open it in your browser after the query succeeds.`,
 				return err
 			}
 
-			if shared.Time != "" {
-				t, err := dsquery.ParseTime(shared.Time, now)
-				if err != nil {
-					return fmt.Errorf("invalid --time value: %w", err)
-				}
-				start = t
-			}
-
 			client, err := loki.NewClient(cfg)
 			if err != nil {
 				return fmt.Errorf("failed to create client: %w", err)
@@ -145,7 +133,6 @@ open it in your browser after the query succeeds.`,
 	}
 
 	shared.Setup(cmd.Flags(), true)
-	shared.SetupInstantFlag(cmd.Flags())
 	cmd.Flags().StringVarP(&datasource, "datasource", "d", "", "Datasource UID (required unless datasources.loki is configured)")
 	share.Setup(cmd.Flags(), "executed query")
 
