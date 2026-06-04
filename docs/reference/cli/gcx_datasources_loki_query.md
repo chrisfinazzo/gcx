@@ -15,6 +15,7 @@ bodies or -o json for the full structured response.
 Default --limit is 50; use --limit 0 for no cap.
 Use --share-link to print the equivalent Grafana Explore URL, or --open to
 open it in your browser after the query succeeds.
+--time evaluates the query over a 1-minute window ending at the given timestamp.
 
 ```
 gcx datasources loki query [EXPR] [flags]

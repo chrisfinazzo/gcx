@@ -10,7 +10,7 @@ TRACEQL is the TraceQL expression to evaluate.
 Datasource is resolved from -d flag or datasources.tempo in your context.
 Use --share-link to print the equivalent Grafana Explore URL, or --open to
 open it in your browser after the query succeeds. Share links require an
-explicit time range via --since or --from/--to.
+explicit time range via --since, --from/--to, or --time.
 
 ```
 gcx traces query [TRACEQL] [flags]

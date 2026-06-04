@@ -13,7 +13,8 @@ Unlike 'logs query' which returns log lines, 'logs metrics' returns
 time-series data with proper table, graph, and JSON formatters.
 
 Instant vs range is deduced from time flags: no time flags = instant query,
---since or --from/--to = range query.
+--since or --from/--to = range query. --time is also an instant query,
+evaluated over a 1-minute window ending at the given timestamp.
 Use --share-link to print the equivalent Grafana Explore URL, or --open to
 open it in your browser after the query succeeds.
 
