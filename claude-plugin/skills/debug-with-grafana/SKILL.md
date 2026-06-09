@@ -315,8 +315,10 @@ spans with missing parents, follow
 [`references/trace-gaps.md`](references/trace-gaps.md):
 detect missing parents, distinguish missing-parent evidence from uninstrumented
 app/runtime work, and use
-[`references/opentelemetry-lost-spans.md`](references/opentelemetry-lost-spans.md)
-for OpenTelemetry-specific lost-span checks.
+[`references/opentelemetry.md`](references/opentelemetry.md)
+for OpenTelemetry-specific exporter, collector, and log checks. For Java agent
+investigations, use
+[`references/opentelemetry-java.md`](references/opentelemetry-java.md).
 
 ### Step 6: Check Related Dashboards and Resources
 
@@ -633,6 +635,10 @@ gcx alert rules list -o json | jq '.[] | .rules[]? | select(.state == "firing")'
   Generic trace-gap workflow for separating missing-parent evidence from
   uninstrumented app/runtime work.
 
-- [`references/opentelemetry-lost-spans.md`](references/opentelemetry-lost-spans.md) —
-  OpenTelemetry-specific checks for possible lost spans using SDK/exporter
-  counters, collector/Alloy self-metrics, and exporter logs.
+- [`references/opentelemetry.md`](references/opentelemetry.md) —
+  OpenTelemetry-specific checks for the application exporter, collector/Alloy,
+  telemetry logs, and missing/incomplete trace decisions.
+
+- [`references/opentelemetry-java.md`](references/opentelemetry-java.md) —
+  Java-agent-specific checks for local console export, debug logging,
+  `LoggingSpanExporter`, JDBC datasource spans, and agent isolation.

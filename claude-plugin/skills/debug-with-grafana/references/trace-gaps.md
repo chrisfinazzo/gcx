@@ -31,8 +31,8 @@ gcx traces get -d <tempo-uid> <trace-id> --llm -o json
 ## Next checks
 
 If missing-parent evidence suggests spans may have been created but lost, follow
-[`opentelemetry-lost-spans.md`](opentelemetry-lost-spans.md) for
-OpenTelemetry-specific exporter, collector, and agent-log checks.
+[`opentelemetry.md`](opentelemetry.md) for
+OpenTelemetry-specific exporter, collector, and log checks.
 
 For remaining uncovered time inside present spans, check runtime and wait
 signals before assuming spans were dropped: CPU, GC, thread pools, queues, DB

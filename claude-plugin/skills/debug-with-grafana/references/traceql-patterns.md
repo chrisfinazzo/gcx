@@ -134,5 +134,5 @@ gcx traces get -d <tempo-uid> <trace-id> --llm -o json
 
 Then follow [`trace-gaps.md`](trace-gaps.md) to distinguish missing-parent
 evidence from uninstrumented time. If OpenTelemetry spans may have been lost,
-use [`opentelemetry-lost-spans.md`](opentelemetry-lost-spans.md) for exporter,
-collector, and agent-log checks.
+use [`opentelemetry.md`](opentelemetry.md) for exporter,
+collector, and log checks.
