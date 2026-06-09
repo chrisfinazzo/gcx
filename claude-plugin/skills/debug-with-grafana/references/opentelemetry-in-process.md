@@ -49,9 +49,8 @@ trace-correlated output and that the query can find span IDs.
 
 ## Debug options
 
-- Add a temporary console/logging exporter, if the SDK or auto-instrumentation
-  supports it, to mirror spans to application logs while still exporting to the
-  normal destination.
+- Add a temporary console/logging exporter to mirror spans to application logs
+  while still exporting to the normal destination.
 - Enable SDK or agent debug logging for a bounded reproduction window.
 - Confirm the actual runtime configuration: service name, resource attributes,
   OTLP endpoint, protocol, headers, sampler, propagators, batch processor, and
@@ -63,6 +62,54 @@ trace-correlated output and that the query can find span IDs.
 
 Debug logs and console exporters can be verbose and may affect performance; keep
 them time-bounded.
+
+### Temporary console mirror settings
+
+For SDKs that support environment-variable exporter selection, the standard
+trace exporter switch is `OTEL_TRACES_EXPORTER`. `console` writes trace data to
+stdout/stderr, `otlp` keeps the normal OTLP path, and some implementations allow
+a comma-separated list:
+
+```bash
+# Preferred for a reproduction: keep normal OTLP export and also print spans.
+export OTEL_TRACES_EXPORTER=otlp,console
+
+# If multiple exporters are not supported, use console-only briefly to prove
+# local span creation. This will stop normal OTLP trace export while enabled.
+export OTEL_TRACES_EXPORTER=console
+```
+
+If you need metrics or logs for the same reproduction, use the equivalent signal
+exporter variables:
+
+```bash
+export OTEL_METRICS_EXPORTER=otlp,console
+export OTEL_LOGS_EXPORTER=otlp,console
+```
+
+Keep the OTLP destination explicit while adding console output so the test does
+not accidentally change the normal export path:
+
+```bash
+# Base endpoint for all OTLP signals. With OTLP/HTTP, SDKs append /v1/traces,
+# /v1/metrics, and /v1/logs to this base endpoint.
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://<otlp-endpoint>
+
+# Or set a traces-only endpoint. With OTLP/HTTP this normally ends in /v1/traces.
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://<otlp-endpoint>/v1/traces
+
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or grpc
+export OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic <redacted>'
+```
+
+Environment-variable support and comma-separated exporter support vary by
+language. Check the language SDK/auto-instrumentation docs before applying these
+settings in production.
+
+References:
+[OpenTelemetry general SDK configuration](https://opentelemetry.io/docs/languages/sdk-configuration/general/)
+and
+[OpenTelemetry OTLP exporter configuration](https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/).
 
 ## Metrics that suggest drops or export failure
 
