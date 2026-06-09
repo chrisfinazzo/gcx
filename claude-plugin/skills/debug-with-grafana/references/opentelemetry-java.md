@@ -2,8 +2,10 @@
 
 Java-specific checks for applications instrumented with the Grafana
 OpenTelemetry Java distribution or the OpenTelemetry Java agent. Use this after
-first identifying the trace, service instance, and export path with
-[`opentelemetry.md`](opentelemetry.md).
+first identifying the trace, service instance, and export path with the
+OpenTelemetry overview and in-process stage:
+[`opentelemetry.md`](opentelemetry.md) and
+[`opentelemetry-in-process.md`](opentelemetry-in-process.md).
 
 ## 1. Confirm the Java agent is active
 

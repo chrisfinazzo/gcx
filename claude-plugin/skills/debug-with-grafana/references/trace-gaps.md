@@ -31,8 +31,8 @@ gcx traces get -d <tempo-uid> <trace-id> --llm -o json
 ## Next checks
 
 If missing-parent evidence suggests spans may have been created but lost, follow
-[`opentelemetry.md`](opentelemetry.md) for
-OpenTelemetry-specific exporter, collector, and log checks.
+[`opentelemetry.md`](opentelemetry.md) to walk the OpenTelemetry pipeline from
+in-process generation through collector/Alloy to Grafana Cloud / Tempo.
 
 For remaining uncovered time inside present spans, check runtime and wait
 signals before assuming spans were dropped: CPU, GC, thread pools, queues, DB
