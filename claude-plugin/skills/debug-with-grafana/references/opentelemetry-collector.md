@@ -61,6 +61,74 @@ TLS, and authentication between app and collector.
 - If multiple collectors are load-balanced, query the specific collector
   instance that handled the affected application instance when possible.
 
+### Temporary debug exporter settings
+
+The Collector `debug` exporter is the standard local exporter for confirming
+that telemetry reached a Collector pipeline. First confirm the Collector
+distribution includes the components you plan to use:
+
+```bash
+otelcol components | grep -E 'otlp|debug'
+```
+
+To verify that traces are reaching the collector while preserving the normal
+export path, add `debug` alongside the existing exporter in the traces pipeline:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch:
+
+exporters:
+  # Existing exporter to the next hop / Grafana Cloud.
+  otlphttp/grafanacloud:
+    endpoint: https://<otlp-gateway>/otlp
+    headers:
+      Authorization: Basic <redacted>
+
+  # Local debug exporter. With no options, it logs a summary for each export.
+  debug:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/grafanacloud, debug]
+```
+
+For a short, low-volume reproduction where span IDs and parent IDs must be
+visible in the collector logs, increase verbosity:
+
+```yaml
+exporters:
+  debug:
+    verbosity: detailed
+```
+
+Use `verbosity: detailed` sparingly: it can log full payload contents, including
+attributes that may be sensitive, and can produce high log volume. Prefer a
+single test service, narrow time window, or temporary canary collector when
+possible.
+
+Expected evidence:
+
+- default debug exporter output proves batches are passing through the pipeline;
+- `verbosity: detailed` output can show trace ID, span ID, parent ID, span name,
+  resource attributes, and span attributes;
+- if the debug exporter prints the span but the downstream exporter fails, the
+  issue is after collector processing;
+- if the debug exporter never prints the test span, focus on receiver wiring,
+  client endpoint/protocol, pipeline configuration, or earlier stages.
+
+Reference:
+[OpenTelemetry Collector local exporters troubleshooting](https://opentelemetry.io/docs/collector/troubleshooting/#local-exporters).
+
 ## Metrics that suggest drops or export failure
 
 Check exporter success/failure and queue pressure:
