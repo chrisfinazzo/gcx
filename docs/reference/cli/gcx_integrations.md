@@ -22,5 +22,6 @@ List available Grafana Cloud integrations
 ### SEE ALSO
 
 * [gcx](gcx.md)	 - Control plane for Grafana Cloud operations
+* [gcx integrations docs](gcx_integrations_docs.md)	 - Show installation docs and prerequisites for an integration.
 * [gcx integrations list](gcx_integrations_list.md)	 - List available Grafana Cloud integrations.
 

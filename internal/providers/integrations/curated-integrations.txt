@@ -15,8 +15,6 @@ apache-tomcat | Apache Tomcat | 1.2.0 | Web Servers and Proxies
 apollo-server | Apollo Server | 1.0.0 | Web Servers and Proxies
 asterisk | Asterisk | 1.0.0 | Networking
 awx | AWX | 1.0.0 | Developer Tools
-azure-event-hubs | Azure Event Hubs | 1.0.2 | Message Queue
-azure-metrics | Azure Metrics | 1.0.2 | Cloud Provider
 caddy | Caddy | 1.1.0 | Security, Web Servers and Proxies
 catchpoint | Catchpoint | 1.0.1 | APM, Web Servers and Proxies, Profiling
 ceph | Ceph | 1.0.1 | Database, Servers and VMs
@@ -37,14 +35,11 @@ elasticsearch | ElasticSearch | 1.0.0 | Database, NoSQL, Logs
 envoy | Envoy | 1.0.0 | Networking, Web Servers and Proxies
 etcd | etcd | 1.0.0 | Servers and VMs, Database
 f5-bigip | F5 BIG-IP | 1.0.2 | Security, Networking
-gcp-logs | GCP Logs | 1.0.2 | Cloud Provider, Logs
-gcp-metrics | GCP Metrics | 1.0.2 | Cloud Provider, Time Series
 gitea | Gitea | 1.0.0 | Developer Tools
 github | GitHub | 1.0.0 | Developer Tools
 gitlab | GitLab | 1.0.0 | Developer Tools, CI/CD
 golang | Go | 1.1.0 | Languages and Frameworks, Data Format, Developer Tools
 grafana-agent | Grafana Agent health | 1.0.1 | Time Series, Developer Tools
-grafana-agent-check | Grafana Agent Check | 1.0.0 | Time Series, Developer Tools
 haproxy | HAProxy | 1.1.0 | Web Servers and Proxies, Networking
 hass | Home Assistant | 1.0.0 | IoT
 hcp-consul | HCP Consul | 1.0.0 | Data Warehouse, Networking, Cloud Provider
@@ -57,7 +52,6 @@ jira | Jira | 1.0.0 | Developer Tools, Business Intelligence
 jvm | JVM | 2.1.0 | Developer Tools, Languages and Frameworks, Data Format
 kafka | Kafka | 2.2.2 | Message Queue
 ktranslate-netflow | Netflow | 1.0.0 | Networking
-kubernetes | Kubernetes | 2.3.1 | Servers and VMs, Developer Tools
 linux-node | Linux Server | 1.6.2 | Servers and VMs, Operating System
 loki | Self-hosted Grafana Loki | 1.0.0 | Logs
 macos-node | macOS | 1.0.2 | Operating System, Servers and VMs

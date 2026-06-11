@@ -29,6 +29,7 @@ func (p *IntegrationsProvider) Commands() []*cobra.Command {
 	}
 
 	integrationsCmd.AddCommand(newListCommand())
+	integrationsCmd.AddCommand(newDocsCommand())
 
 	return []*cobra.Command{integrationsCmd}
 }

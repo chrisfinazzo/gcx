@@ -24,11 +24,7 @@ func (c *integrationsTableCodec) Format() format.Format {
 func (c *integrationsTableCodec) Encode(w io.Writer, v any) error {
 	integrations, ok := v.([]Integration)
 	if !ok {
-		if one, ok := v.(Integration); ok {
-			integrations = []Integration{one}
-		} else {
-			return errors.New("invalid data type for table codec: expected []Integration or Integration")
-		}
+		return errors.New("invalid data type for table codec: expected []Integration")
 	}
 
 	var tbl *style.TableBuilder
