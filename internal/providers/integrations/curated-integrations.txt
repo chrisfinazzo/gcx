@@ -1,0 +1,106 @@
+# Curated list of available Grafana Cloud integrations.
+# Format: slug | name | version | categories
+# Blank lines and lines starting with '#' are ignored.
+aerospike | Aerospike | 1.0.0 | Database, NoSQL
+apache-activemq | Apache ActiveMQ | 1.1.0 | Message Queue
+apache-airflow | Apache Airflow | 1.0.0 | Developer Tools
+apache-cassandra | Apache Cassandra | 1.1.0 | Database, NoSQL, Data Warehouse
+apache-couchdb | Apache CouchDB | 1.1.0 | Database, NoSQL
+apache-hadoop | Apache Hadoop | 1.0.0 | Database, NoSQL, Data Format, Business Intelligence
+apache-hbase | Apache HBase | 1.0.1 | Database, NoSQL, Business Intelligence
+apache-http | Apache HTTP server | 1.0.1 | Web Servers and Proxies
+apache-mesos | Apache Mesos | 1.0.0 | Servers and VMs
+apache-solr | Apache Solr | 1.0.4 | NoSQL, Database
+apache-tomcat | Apache Tomcat | 1.2.0 | Web Servers and Proxies
+apollo-server | Apollo Server | 1.0.0 | Web Servers and Proxies
+asterisk | Asterisk | 1.0.0 | Networking
+awx | AWX | 1.0.0 | Developer Tools
+azure-event-hubs | Azure Event Hubs | 1.0.2 | Message Queue
+azure-metrics | Azure Metrics | 1.0.2 | Cloud Provider
+caddy | Caddy | 1.1.0 | Security, Web Servers and Proxies
+catchpoint | Catchpoint | 1.0.1 | APM, Web Servers and Proxies, Profiling
+ceph | Ceph | 1.0.1 | Database, Servers and VMs
+cert-manager | Cert Manager | 1.0.1 | Security
+cilium-enterprise | Cilium Enterprise | 1.0.0 | Networking, APM, Security, Servers and VMs
+clickhouse | ClickHouse | 1.1.0 | Database, APM, Business Intelligence
+cloudflare | Cloudflare | 1.1.0 | Security, Networking
+cockroachdb | CockroachDB | 1.0.0 | SQL, Database
+consul | Consul | 1.0.0 | Networking, Data Warehouse
+coredns | CoreDNS | 1.0.0 | Networking
+couchbase | Couchbase | 1.0.0 | Database, NoSQL
+databricks | Databricks | 1.0.1 | Database, Data Warehouse, Business Intelligence, Machine Learning
+discourse | Discourse | 1.0.0 |
+dnsmasq | dnsmasq | 1.0.0 | Networking
+docker | Docker | 1.4.0 | Servers and VMs
+docker-desktop | Docker Desktop | 2.0.0 | Servers and VMs
+elasticsearch | ElasticSearch | 1.0.0 | Database, NoSQL, Logs
+envoy | Envoy | 1.0.0 | Networking, Web Servers and Proxies
+etcd | etcd | 1.0.0 | Servers and VMs, Database
+f5-bigip | F5 BIG-IP | 1.0.2 | Security, Networking
+gcp-logs | GCP Logs | 1.0.2 | Cloud Provider, Logs
+gcp-metrics | GCP Metrics | 1.0.2 | Cloud Provider, Time Series
+gitea | Gitea | 1.0.0 | Developer Tools
+github | GitHub | 1.0.0 | Developer Tools
+gitlab | GitLab | 1.0.0 | Developer Tools, CI/CD
+golang | Go | 1.1.0 | Languages and Frameworks, Data Format, Developer Tools
+grafana-agent | Grafana Agent health | 1.0.1 | Time Series, Developer Tools
+grafana-agent-check | Grafana Agent Check | 1.0.0 | Time Series, Developer Tools
+haproxy | HAProxy | 1.1.0 | Web Servers and Proxies, Networking
+hass | Home Assistant | 1.0.0 | IoT
+hcp-consul | HCP Consul | 1.0.0 | Data Warehouse, Networking, Cloud Provider
+ibm-db2 | IBM DB2 | 1.0.0 | Database
+ibm-mq | IBM MQ | 1.0.0 | Message Queue
+influxdb | InfluxDB | 1.1.0 | Database, NoSQL, IoT, Time Series
+istio | Istio | 1.0.2 | Networking, Security
+jenkins | Jenkins | 1.0.0 | CI/CD, Developer Tools
+jira | Jira | 1.0.0 | Developer Tools, Business Intelligence
+jvm | JVM | 2.1.0 | Developer Tools, Languages and Frameworks, Data Format
+kafka | Kafka | 2.2.2 | Message Queue
+ktranslate-netflow | Netflow | 1.0.0 | Networking
+kubernetes | Kubernetes | 2.3.1 | Servers and VMs, Developer Tools
+linux-node | Linux Server | 1.6.2 | Servers and VMs, Operating System
+loki | Self-hosted Grafana Loki | 1.0.0 | Logs
+macos-node | macOS | 1.0.2 | Operating System, Servers and VMs
+memcached | Memcached | 1.0.0 | Database
+microsoft-iis | Microsoft IIS | 1.1.0 | Web Servers and Proxies
+mimir | Self-hosted Mimir | 2.3.0 | Time Series
+minio | MinIO | 1.0.0 | Data Warehouse
+mongodb | MongoDB | 1.1.2 | Database, NoSQL, Data Warehouse
+mongodb-atlas | MongoDB Atlas | 1.1.0 | Database, NoSQL, Data Warehouse, Cloud Provider
+mssql | Microsoft SQL Server | 1.1.0 | Database, SQL, Data Warehouse
+mysql | MySQL | 1.1.6 | Database, SQL, Data Warehouse
+nginx | Nginx | 1.1.2 | Web Servers and Proxies, Developer Tools, Networking
+nodejs | Node.js | 1.0.0 | Languages and Frameworks, Developer Tools
+nomad | Nomad | 1.0.0 | Servers and VMs
+nsq | NSQ | 1.0.0 | Message Queue
+openldap | OpenLDAP | 1.0.2 | Security, Networking
+opensearch | OpenSearch | 1.2.0 | Data Transformation
+openstack | OpenStack | 1.1.1 | Cloud Provider, Networking, Servers and VMs
+oracledb | OracleDB | 1.1.0 | Database, SQL
+pgbouncer | PgBouncer | 1.0.1 | Database, Logs, SQL, Web Servers and Proxies
+pinecone | Pinecone | 1.0.0 | Database, NoSQL, Machine Learning
+postgres | PostgreSQL | 1.1.1 | Database, SQL
+presto | Presto | 1.1.0 | Database, SQL
+rabbitmq | RabbitMQ | 1.1.0 | Message Queue, Database
+raspberry-pi-node | Raspberry Pi | 1.0.1 | IoT, Operating System
+rclone | rclone | 1.0.0 | Developer Tools
+redis | Redis | 1.0.0 | Database, Data Warehouse
+redis-enterprise | Redis Enterprise | 1.1.0 | Database, Data Warehouse
+ruby-rack | Ruby Rack | 1.0.0 | Web Servers and Proxies, Languages and Frameworks
+sap-hana | SAP HANA® | 1.0.0 | Database, Business Intelligence
+snmp | SNMP | 2.0.1 | Networking
+snowflake | Snowflake | 1.0.1 | Database, Data Warehouse, Business Intelligence
+spark | Apache Spark | 1.0.0 | Data Transformation, Business Intelligence, Machine Learning
+spring-boot | Spring Boot | 1.0.0 | Languages and Frameworks, Data Format, Developer Tools
+squid | Squid | 1.1.0 | Networking, Web Servers and Proxies
+tensorflow | TensorFlow Serving | 1.0.0 | Developer Tools, Servers and VMs, Machine Learning
+traefik | Traefik | 1.0.0 | Networking
+varnish-cache | Varnish Cache | 1.0.0 | Web Servers and Proxies, Networking
+vault | Vault | 1.0.0 | Security
+velero | Velero | 1.0.1 | Developer Tools, Cloud Provider, Logs
+vsphere | vSphere | 1.0.2 | Developer Tools, Servers and VMs, Networking
+wildfly | Wildfly | 1.1.0 | Web Servers and Proxies
+windows-active-directory | Windows Active Directory | 1.0.2 | Database, Logs, Business Intelligence, Servers and VMs, Security
+windows-exporter | Windows | 1.4.0 | Operating System, Servers and VMs
+wso2-enterprise-integrator | WSO2 Enterprise Integrator | 1.0.0 | Developer Tools
+wso2-streaming-integrator | WSO2 Streaming Integrator | 1.0.0 | Developer Tools
