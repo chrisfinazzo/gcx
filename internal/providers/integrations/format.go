@@ -29,14 +29,14 @@ func (c *integrationsTableCodec) Encode(w io.Writer, v any) error {
 
 	var tbl *style.TableBuilder
 	if c.Wide {
-		tbl = style.NewTable("SLUG", "NAME", "VERSION", "TYPE", "CATEGORIES")
+		tbl = style.NewTable("SLUG", "NAME", "VERSION", "TYPE", "CATEGORIES", "PLATFORMS")
 	} else {
 		tbl = style.NewTable("SLUG", "NAME", "VERSION")
 	}
 
 	for _, in := range integrations {
 		if c.Wide {
-			tbl.Row(in.Slug, in.Name, in.Version, in.Type, strings.Join(in.Categories, ", "))
+			tbl.Row(in.Slug, in.Name, in.Version, in.Type, strings.Join(in.Categories, ", "), strings.Join(in.Platforms, ", "))
 		} else {
 			tbl.Row(in.Slug, in.Name, in.Version)
 		}

@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,9 @@ func TestCuratedCatalog(t *testing.T) {
 	if len(linux.Categories) == 0 {
 		t.Error("linux-node should have categories")
 	}
+	if !slices.Contains(linux.Platforms, "kubernetes") || !slices.Contains(linux.Platforms, "linux") {
+		t.Errorf("linux-node platforms wrong: %v", linux.Platforms)
+	}
 
 	// An entry with no categories must still parse (e.g. discourse).
 	if d, ok := bySlug["discourse"]; !ok || d.Name != "Discourse" {
@@ -43,6 +47,26 @@ func TestCuratedCatalog(t *testing.T) {
 		if _, bad := bySlug[removed]; bad {
 			t.Errorf("removed integration %q leaked into catalog", removed)
 		}
+	}
+}
+
+func TestFilterByPlatform(t *testing.T) {
+	got := filterByPlatform(curatedCatalog(), "kubernetes")
+	if len(got) == 0 {
+		t.Fatal("expected kubernetes integrations")
+	}
+	for _, in := range got {
+		if !slices.Contains(in.Platforms, "kubernetes") {
+			t.Errorf("%q has no kubernetes platform: %v", in.Slug, in.Platforms)
+		}
+	}
+	// Case-insensitive.
+	if len(filterByPlatform(curatedCatalog(), "Kubernetes")) != len(got) {
+		t.Error("platform match should be case-insensitive")
+	}
+	// Integrations with no platforms never match.
+	if out := filterByPlatform([]Integration{{Slug: "x"}}, "linux"); len(out) != 0 {
+		t.Errorf("integration without platforms should not match, got %d", len(out))
 	}
 }
 

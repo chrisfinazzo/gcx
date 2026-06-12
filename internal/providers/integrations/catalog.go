@@ -13,6 +13,7 @@ type Integration struct {
 	Version    string   `json:"version"`
 	Type       string   `json:"type"`
 	Categories []string `json:"categories,omitempty"`
+	Platforms  []string `json:"platforms,omitempty"`
 }
 
 // curatedData is the embedded curated list of available Grafana Cloud
@@ -48,15 +49,25 @@ func curatedCatalog() []Integration {
 			in.Version = strings.TrimSpace(fields[2])
 		}
 		if len(fields) >= 4 {
-			for c := range strings.SplitSeq(fields[3], ",") {
-				if c = strings.TrimSpace(c); c != "" {
-					in.Categories = append(in.Categories, c)
-				}
-			}
+			in.Categories = splitCSV(fields[3])
+		}
+		if len(fields) >= 5 {
+			in.Platforms = splitCSV(fields[4])
 		}
 		out = append(out, in)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out
+}
+
+// splitCSV splits a comma-separated field into trimmed, non-empty values.
+func splitCSV(field string) []string {
+	var out []string
+	for v := range strings.SplitSeq(field, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
 	return out
 }
