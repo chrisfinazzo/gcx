@@ -30,6 +30,9 @@ gcx datasources query DATASOURCE_UID [EXPR] [flags]
   # Pyroscope via auto-detect
   gcx datasources query pyro-001 '{service_name="frontend"}' \
     --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --from now-1h --to now
+
+  # ClickHouse via auto-detect
+  gcx datasources query ch-001 'SELECT number FROM numbers(5)'
 ```
 
 ### Options

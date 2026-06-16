@@ -7,6 +7,7 @@ import (
 
 	cmdconfig "github.com/grafana/gcx/cmd/gcx/config"
 	dsquery "github.com/grafana/gcx/internal/datasources/query"
+	"github.com/grafana/gcx/internal/query/clickhouse"
 	"github.com/grafana/gcx/internal/query/loki"
 	"github.com/grafana/gcx/internal/query/prometheus"
 	"github.com/grafana/gcx/internal/query/pyroscope"
@@ -41,7 +42,10 @@ that do not have a dedicated subcommand.`,
 
   # Pyroscope via auto-detect
   gcx datasources query pyro-001 '{service_name="frontend"}' \
-    --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --from now-1h --to now`,
+    --profile-type process_cpu:cpu:nanoseconds:cpu:nanoseconds --from now-1h --to now
+
+  # ClickHouse via auto-detect
+  gcx datasources query ch-001 'SELECT number FROM numbers(5)'`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := shared.Validate(); err != nil {
@@ -154,8 +158,31 @@ that do not have a dedicated subcommand.`,
 
 				return shared.IO.Encode(cmd.OutOrStdout(), resp)
 
+			case "clickhouse":
+				client, err := clickhouse.NewClient(cfg)
+				if err != nil {
+					return fmt.Errorf("failed to create client: %w", err)
+				}
+
+				req := clickhouse.QueryRequest{
+					SQL:   expr,
+					Start: start,
+					End:   end,
+				}
+
+				resp, err := client.Query(ctx, datasourceUID, req)
+				if err != nil {
+					return fmt.Errorf("query failed: %w", err)
+				}
+
+				if shared.IO.OutputFormat == "table" {
+					return clickhouse.FormatTable(cmd.OutOrStdout(), resp)
+				}
+
+				return shared.IO.Encode(cmd.OutOrStdout(), resp)
+
 			default:
-				return fmt.Errorf("datasource type %q is not supported (supported: prometheus, loki, pyroscope)", dsType)
+				return fmt.Errorf("datasource type %q is not supported (supported: prometheus, loki, pyroscope, clickhouse)", dsType)
 			}
 		},
 	}

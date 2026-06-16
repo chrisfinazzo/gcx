@@ -7,6 +7,7 @@ import (
 	"github.com/grafana/gcx/internal/format"
 	"github.com/grafana/gcx/internal/graph"
 	cmdio "github.com/grafana/gcx/internal/output"
+	"github.com/grafana/gcx/internal/query/clickhouse"
 	"github.com/grafana/gcx/internal/query/loki"
 	"github.com/grafana/gcx/internal/query/prometheus"
 	"github.com/grafana/gcx/internal/query/pyroscope"
@@ -35,6 +36,8 @@ func (c *queryTableCodec) Encode(w io.Writer, data any) error {
 		return tempo.FormatMetricsTable(w, resp)
 	case *tempo.GetTraceResponse:
 		return tempo.FormatTraceTable(w, resp)
+	case *clickhouse.QueryResponse:
+		return clickhouse.FormatTable(w, resp)
 	default:
 		return errors.New("invalid data type for query table codec")
 	}
