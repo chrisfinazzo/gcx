@@ -11,6 +11,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFormatTableEmptyIsTypeAware(t *testing.T) {
+	tests := []struct {
+		name       string
+		resultType string
+		format     func(io.Writer, *prometheus.QueryResponse) error
+		want       string
+	}{
+		{
+			name:       "empty matrix names the range query",
+			resultType: "matrix",
+			format:     prometheus.FormatTable,
+			want:       "No data (empty matrix — range query matched no series)",
+		},
+		{
+			name:       "empty vector names the instant query",
+			resultType: "vector",
+			format:     prometheus.FormatTable,
+			want:       "No data (empty vector — instant query matched no series)",
+		},
+		{
+			name:       "wide table is also type-aware",
+			resultType: "matrix",
+			format:     prometheus.FormatWideTable,
+			want:       "No data (empty matrix — range query matched no series)",
+		},
+		{
+			name:       "unknown type falls back to plain message",
+			resultType: "scalar",
+			format:     prometheus.FormatTable,
+			want:       "No data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &prometheus.QueryResponse{
+				Status: "success",
+				Data:   prometheus.ResultData{ResultType: tt.resultType},
+			}
+			var buf bytes.Buffer
+			require.NoError(t, tt.format(&buf, resp))
+			assert.Equal(t, tt.want, strings.TrimSpace(buf.String()))
+		})
+	}
+}
+
 func TestFormatVectorTableVariants(t *testing.T) {
 	resp := &prometheus.QueryResponse{
 		Status: "success",

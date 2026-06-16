@@ -8,6 +8,7 @@ import (
 	"github.com/grafana/gcx/internal/agent"
 	internalconfig "github.com/grafana/gcx/internal/config"
 	dsquery "github.com/grafana/gcx/internal/datasources/query"
+	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers"
 	"github.com/grafana/gcx/internal/query/prometheus"
 	"github.com/grafana/grafana-app-sdk/logging"
@@ -124,6 +125,11 @@ open it in your browser after the query succeeds.`,
 			if err != nil {
 				return fmt.Errorf("query failed: %w", err)
 			}
+
+			// Emit a one-line result-shape summary to stderr so empty/instant/range
+			// results are distinguishable at a glance. stdout stays byte-clean,
+			// preserving the machine-readable contract for piped consumers.
+			cmdio.EmitNote(cmd.ErrOrStderr(), prometheus.SummarizeResult(resp))
 
 			exploreURL := QueryExploreURL(cfg.GrafanaURL, dsquery.ExploreQuery{
 				DatasourceUID:  datasourceUID,

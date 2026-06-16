@@ -16,7 +16,7 @@ import (
 // FormatWideTable to explode labels into individual columns.
 func FormatTable(w io.Writer, resp *QueryResponse) error {
 	if len(resp.Data.Result) == 0 {
-		fmt.Fprintln(w, "No data")
+		fmt.Fprintln(w, emptyResultMessage(resp.Data.ResultType))
 		return nil
 	}
 
@@ -37,7 +37,7 @@ func FormatTable(w io.Writer, resp *QueryResponse) error {
 // human-readable view.
 func FormatWideTable(w io.Writer, resp *QueryResponse) error {
 	if len(resp.Data.Result) == 0 {
-		fmt.Fprintln(w, "No data")
+		fmt.Fprintln(w, emptyResultMessage(resp.Data.ResultType))
 		return nil
 	}
 
@@ -50,6 +50,20 @@ func FormatWideTable(w io.Writer, resp *QueryResponse) error {
 		return formatScalarTable(w, resp)
 	default:
 		return fmt.Errorf("unsupported result type: %s", resp.Data.ResultType)
+	}
+}
+
+// emptyResultMessage describes an empty result in terms of the query type, so a
+// range query that legitimately matched no series is not mistaken for a degraded
+// instant query. Table output only; the JSON/YAML codecs carry resultType already.
+func emptyResultMessage(resultType string) string {
+	switch resultType {
+	case "matrix":
+		return "No data (empty matrix — range query matched no series)"
+	case "vector":
+		return "No data (empty vector — instant query matched no series)"
+	default:
+		return "No data"
 	}
 }
 
