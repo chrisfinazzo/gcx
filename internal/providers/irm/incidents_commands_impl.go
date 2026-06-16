@@ -50,13 +50,16 @@ func (o *incidentListOpts) Validate() error {
 	if o.Limit < 1 {
 		return fmt.Errorf("invalid --limit value %d: must be at least 1", o.Limit)
 	}
-	// The API's incidentLabels field matches plain label text for labels
-	// under the default Tags key and key:value composites for keyed labels,
-	// so any non-empty string is a valid filter — pass values through as
-	// given.
+	// Labels match plain label text for the default Tags key and key:value
+	// composites for keyed labels; values are passed through as given and
+	// double-quoted into the incident query-string language by the client.
+	// That language cannot express a value containing a double quote.
 	for _, l := range o.Labels {
 		if strings.TrimSpace(l) == "" {
 			return errors.New("invalid --labels value: label must not be empty")
+		}
+		if strings.Contains(l, `"`) {
+			return fmt.Errorf("invalid --labels value %q: cannot contain double quotes", l)
 		}
 	}
 	now := time.Now()
