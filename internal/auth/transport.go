@@ -39,10 +39,6 @@ type StoredTokens struct {
 // persisted tokens are available.
 type TokenReloader func() (StoredTokens, bool, error)
 
-// Refresher performs the network refresh call and returns new token credentials.
-// When nil, RefreshTransport uses its built-in proxy refresh endpoint.
-type Refresher func(ctx context.Context, refreshToken string) (RefreshResult, error)
-
 // RefreshTransport wraps an http.RoundTripper and transparently refreshes
 // the gat_ access token when it is close to expiry.
 type RefreshTransport struct {
@@ -62,10 +58,6 @@ type RefreshTransport struct {
 	// refresh. If another process has already refreshed, its tokens are
 	// adopted and the network refresh is skipped.
 	Reload TokenReloader
-
-	// DoRefresh, if set, replaces the built-in proxy refresh with a custom
-	// implementation (e.g. GCOM OAuth2 token refresh).
-	DoRefresh Refresher
 
 	mu         sync.Mutex
 	cond       *sync.Cond
@@ -188,13 +180,7 @@ func (t *RefreshTransport) maybeRefresh(req *http.Request) error {
 	defer cancel()
 
 	// Network call happens outside the in-process mutex.
-	var result RefreshResult
-	var err error
-	if t.DoRefresh != nil {
-		result, err = t.DoRefresh(refreshCtx, refreshToken)
-	} else {
-		result, err = t.doProxyRefresh(refreshCtx, refreshToken)
-	}
+	result, err := t.doProxyRefresh(refreshCtx, refreshToken)
 	if err != nil {
 		return err
 	}

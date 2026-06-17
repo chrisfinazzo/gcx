@@ -18,14 +18,11 @@ import (
 
 // GCOMResult contains the result of a GCOM OAuth2 PKCE authentication flow.
 type GCOMResult struct {
-	AccessToken      string
-	RefreshToken     string
-	RefreshExpiresAt string
-	Scope            string
-	ExpiresIn        int
-	UserID           int
-	OrgSlug          string
-	Info             struct {
+	AccessToken string
+	Scope       string
+	ExpiresIn   int
+	UserID      int
+	Info        struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 		Login string `json:"login"`
@@ -109,7 +106,7 @@ func (f *GCOMFlow) Run(ctx context.Context) (*GCOMResult, error) {
 	gcomURL := strings.TrimSuffix(f.opts.GCOMURL, "/")
 	scope := strings.Join(f.opts.Scopes, " ")
 
-	authURL := fmt.Sprintf("%s/oauth2/authorize?client_id=%s&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256&state=%s&scope_selection=true&response_type=code",
+	authURL := fmt.Sprintf("%s/oauth2/authorize?client_id=%s&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256&state=%s&response_type=code",
 		gcomURL,
 		url.QueryEscape(f.opts.ClientID),
 		url.QueryEscape(redirectURI),
@@ -173,7 +170,6 @@ func (f *GCOMFlow) startGCOMCallbackServer(ctx context.Context, listener net.Lis
 				return
 			}
 
-			result.OrgSlug = r.URL.Query().Get("org_slug")
 			resultCh <- result
 			renderSuccessPage(w)
 		})
@@ -198,14 +194,12 @@ func (f *GCOMFlow) startGCOMCallbackServer(ctx context.Context, listener net.Lis
 }
 
 type gcomTokenResponse struct {
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	RefreshExpiresAt string `json:"refresh_expires_at"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int    `json:"expires_in"`
-	Scope            string `json:"scope"`
-	UID              int    `json:"uid"`
-	Info             struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
+	UID         int    `json:"uid"`
+	Info        struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 		Login string `json:"login"`
@@ -261,12 +255,10 @@ func (f *GCOMFlow) exchangeGCOMToken(ctx context.Context, code, codeVerifier, re
 	}
 
 	return &GCOMResult{
-		AccessToken:      tokenResp.AccessToken,
-		RefreshToken:     tokenResp.RefreshToken,
-		RefreshExpiresAt: tokenResp.RefreshExpiresAt,
-		Scope:            tokenResp.Scope,
-		ExpiresIn:        tokenResp.ExpiresIn,
-		UserID:           tokenResp.UID,
-		Info:             tokenResp.Info,
+		AccessToken: tokenResp.AccessToken,
+		Scope:       tokenResp.Scope,
+		ExpiresIn:   tokenResp.ExpiresIn,
+		UserID:      tokenResp.UID,
+		Info:        tokenResp.Info,
 	}, nil
 }

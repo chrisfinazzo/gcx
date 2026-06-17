@@ -10,7 +10,7 @@ import (
 	cmdconfig "github.com/grafana/gcx/cmd/gcx/config"
 	"github.com/grafana/gcx/internal/auth"
 	"github.com/grafana/gcx/internal/config"
-	"github.com/grafana/gcx/internal/fail"
+	"github.com/grafana/gcx/internal/gcxerrors"
 	"github.com/spf13/cobra"
 )
 
@@ -95,7 +95,7 @@ func runOAuthLogin(ctx context.Context, configOpts *cmdconfig.Options, apiURL st
 
 	result, err := flow.Run(ctx)
 	if err != nil {
-		return &fail.DetailedError{
+		return &gcxerrors.DetailedError{
 			Summary: "Authentication failed",
 			Parent:  err,
 			Suggestions: []string{
@@ -108,17 +108,11 @@ func runOAuthLogin(ctx context.Context, configOpts *cmdconfig.Options, apiURL st
 
 	fmt.Fprintf(os.Stderr, "Authenticated as %s (%s)\n", result.Info.Login, result.Info.Email)
 	fmt.Fprintf(os.Stderr, "Scopes: %s\n", result.Scope)
-	if result.OrgSlug != "" {
-		fmt.Fprintf(os.Stderr, "Organization: %s\n", result.OrgSlug)
-	}
 
 	cloud := &config.CloudConfig{
-		Token:            result.AccessToken,
-		TokenExpiresAt:   time.Now().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339),
-		RefreshToken:     result.RefreshToken,
-		RefreshExpiresAt: result.RefreshExpiresAt,
-		Org:              result.OrgSlug,
-		APIUrl:           apiURL,
+		Token:          result.AccessToken,
+		TokenExpiresAt: time.Now().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339),
+		APIUrl:         apiURL,
 	}
 	return saveCloudConfig(ctx, configOpts, cloud)
 }
@@ -131,7 +125,7 @@ func saveCloudConfig(ctx context.Context, configOpts *cmdconfig.Options, cloud *
 
 	cfg, err := config.Load(ctx, source)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return &fail.DetailedError{
+		return &gcxerrors.DetailedError{
 			Summary: "Failed to load config",
 			Parent:  err,
 			Suggestions: []string{
@@ -158,7 +152,7 @@ func saveCloudConfig(ctx context.Context, configOpts *cmdconfig.Options, cloud *
 	curCtx.Cloud = cloud
 
 	if err := config.Write(ctx, source, cfg); err != nil {
-		return &fail.DetailedError{
+		return &gcxerrors.DetailedError{
 			Summary: "Failed to save config",
 			Parent:  err,
 			Suggestions: []string{
