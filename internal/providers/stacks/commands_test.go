@@ -90,7 +90,7 @@ func TestCreateCommand_NameAndSlugRequired(t *testing.T) {
 
 func TestCreateCommand_DryRun(t *testing.T) {
 	out, err := runCmd(t, stacks.NewTestCreateCommand(), []string{
-		"create", "--name", "My Stack", "--slug", "mystack", "--region", "us",
+		"create", "--name", "My Stack", "--slug", "mystack", "--org", "myorg", "--region", "us",
 		"--dry-run", "-o", "table",
 	}, "")
 
@@ -105,7 +105,7 @@ func TestCreateCommand_DryRun(t *testing.T) {
 
 func TestCreateCommand_DryRun_WithLabels(t *testing.T) {
 	out, err := runCmd(t, stacks.NewTestCreateCommand(), []string{
-		"create", "--name", "My Stack", "--slug", "mystack",
+		"create", "--name", "My Stack", "--slug", "mystack", "--org", "myorg",
 		"--labels", "env=prod", "--labels", "team=platform",
 		"--dry-run", "-o", "table",
 	}, "")
@@ -121,7 +121,7 @@ func TestCreateCommand_DryRun_WithLabels(t *testing.T) {
 
 func TestCreateCommand_DryRun_DeleteProtectionFlag(t *testing.T) {
 	out, err := runCmd(t, stacks.NewTestCreateCommand(), []string{
-		"create", "--name", "My Stack", "--slug", "mystack",
+		"create", "--name", "My Stack", "--slug", "mystack", "--org", "myorg",
 		"--delete-protection",
 		"--dry-run", "-o", "table",
 	}, "")
@@ -134,7 +134,7 @@ func TestCreateCommand_DryRun_DeleteProtectionFlag(t *testing.T) {
 
 func TestCreateCommand_DryRun_InvalidLabels(t *testing.T) {
 	_, err := runCmd(t, stacks.NewTestCreateCommand(), []string{
-		"create", "--name", "My Stack", "--slug", "mystack",
+		"create", "--name", "My Stack", "--slug", "mystack", "--org", "myorg",
 		"--labels", "noequalssign",
 		"--dry-run", "-o", "table",
 	}, "")
@@ -147,7 +147,7 @@ func TestCreateCommand_DryRun_DoesNotCallAPI(t *testing.T) {
 	// Dry-run should return before reaching the config loader. If it tried
 	// to load config, it would error because there's no config context set up.
 	_, err := runCmd(t, stacks.NewTestCreateCommand(), []string{
-		"create", "--name", "X", "--slug", "x", "--dry-run", "-o", "table",
+		"create", "--name", "X", "--slug", "x", "--org", "myorg", "--dry-run", "-o", "table",
 	}, "")
 	require.NoError(t, err)
 }

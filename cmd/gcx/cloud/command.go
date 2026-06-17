@@ -47,8 +47,7 @@ Grafana stack instance. "gcx cloud login" authenticates against the
 Grafana Cloud platform API (grafana.com), enabling commands that manage
 Cloud resources like stacks and access policies.
 
-By default, opens a browser for interactive OAuth2 authentication where
-you can choose which scopes and organization to grant access to.
+By default, opens a browser for interactive OAuth2 authentication.
 
 For non-interactive use (CI/CD, scripts), pass a Cloud Access Policy token
 directly via --cloud-token.`,
@@ -56,6 +55,11 @@ directly via --cloud-token.`,
   gcx cloud login --cloud-token glsa_abc123
   gcx cloud login --api-url https://grafana-dev.com`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !cmd.Flags().Changed("api-url") {
+				if u := cloudAPIURLFromConfig(cmd.Context(), configOpts); u != "" {
+					apiURL = u
+				}
+			}
 			if cloudToken != "" {
 				return runTokenLogin(cmd.Context(), configOpts, cloudToken, apiURL)
 			}
@@ -71,6 +75,22 @@ directly via --cloud-token.`,
 	}, "OAuth2 scopes to request")
 
 	return cmd
+}
+
+func cloudAPIURLFromConfig(ctx context.Context, configOpts *cmdconfig.Options) string {
+	cfg, err := config.Load(ctx, configOpts.ConfigSource())
+	if err != nil {
+		return ""
+	}
+	ctxName := cfg.CurrentContext
+	if ctxName == "" {
+		ctxName = config.DefaultContextName
+	}
+	c, ok := cfg.Contexts[ctxName]
+	if !ok || c.Cloud == nil || c.Cloud.APIUrl == "" {
+		return ""
+	}
+	return c.ResolveGCOMURL()
 }
 
 func runTokenLogin(ctx context.Context, configOpts *cmdconfig.Options, token, apiURL string) error {
@@ -156,7 +176,7 @@ func saveCloudConfig(ctx context.Context, configOpts *cmdconfig.Options, cloud *
 			Summary: "Failed to save config",
 			Parent:  err,
 			Suggestions: []string{
-				"Check file permissions on " + contextName,
+				"Check file permissions on the config file",
 				"Try: gcx config edit",
 			},
 		}

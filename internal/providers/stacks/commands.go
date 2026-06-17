@@ -9,7 +9,6 @@ import (
 
 	"github.com/grafana/gcx/internal/agent"
 	"github.com/grafana/gcx/internal/cloud"
-	"github.com/grafana/gcx/internal/fail"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers"
 	"github.com/spf13/cobra"
@@ -143,7 +142,7 @@ func (o *createOpts) setup(flags *pflag.FlagSet) {
 	o.IO.BindFlags(flags)
 	flags.StringVar(&o.Name, "name", "", "Stack name (required)")
 	flags.StringVar(&o.Slug, "slug", "", "Stack slug / subdomain (required)")
-	flags.StringVar(&o.Org, "org", "", "Organisation slug (defaults to cloud.stack from config)")
+	flags.StringVar(&o.Org, "org", "", "Organisation slug (required)")
 	flags.StringVar(&o.Region, "region", "", "Region slug (e.g. us, eu). Use 'gcx stacks regions' to list.")
 	flags.StringVar(&o.Description, "description", "", "Short description")
 	flags.StringSliceVar(&o.Labels, "labels", nil, "Labels in key=value format (may be repeated)")
@@ -168,9 +167,6 @@ user before executing. Prefer --dry-run first.`,
 			agent.AnnotationLLMHint:       "This command creates a new Grafana Cloud stack, which provisions infrastructure and may incur costs. Always confirm the stack name, slug, and region with the user before executing. Prefer --dry-run first.",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if opts.Name == "" || opts.Slug == "" {
-				return errors.New("--name and --slug are required")
-			}
 			if err := opts.IO.Validate(); err != nil {
 				return err
 			}
@@ -180,24 +176,10 @@ user before executing. Prefer --dry-run first.`,
 				return err
 			}
 
-			org := opts.Org
-			if org == "" {
-				org = loader.CloudOrgSlug()
-			}
-			if org == "" {
-				return &fail.DetailedError{
-					Summary: "Organization is required",
-					Suggestions: []string{
-						"Pass --org <slug> to specify the organization",
-						"Or re-run gcx cloud login and select an organization",
-					},
-				}
-			}
-
 			req := cloud.CreateStackRequest{
 				Name:        opts.Name,
 				Slug:        opts.Slug,
-				Org:         org,
+				Org:         opts.Org,
 				Region:      opts.Region,
 				Description: opts.Description,
 				Labels:      labels,
@@ -230,6 +212,7 @@ user before executing. Prefer --dry-run first.`,
 	opts.setup(cmd.Flags())
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("slug")
+	_ = cmd.MarkFlagRequired("org")
 	return cmd
 }
 
