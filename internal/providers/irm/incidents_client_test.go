@@ -248,23 +248,168 @@ func TestClient_List(t *testing.T) {
 	}
 }
 
-// TestClient_List_Filters covers the filter translation the migration to
-// QueryIncidentPreviews introduced: labels become query-string terms and the
-// date bounds are enforced client-side (the endpoint has no date fields).
-func TestClient_List_Filters(t *testing.T) {
+// TestClient_List_LabelFilters covers client-side label matching: keyed vs
+// legacy labels, labels carried in `value` rather than `label`, double quotes,
+// and paging until enough matches accumulate.
+func TestClient_List_LabelFilters(t *testing.T) {
 	tests := []clientListCase{
 		{
-			name:  "translates labels into quoted query-string terms",
-			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{"security", "PIR not needed", "service_name:checkout", "team's"}},
+			name:  "matches keyed and legacy labels client-side",
+			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{"squad:mimir"}},
 			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
 				t.Helper()
 				return func(w http.ResponseWriter, _ *http.Request) {
 					req := (*calls)[0]
-					assert.Equal(t, `label:"security" label:"PIR not needed" label:"service_name:checkout" label:"team's"`, req.Query["queryString"])
+					assert.NotContains(t, req.Query, "queryString")
 					assert.NotContains(t, req.Query, "incidentLabels")
 					assert.Equal(t, "DESC", req.Query["orderDirection"])
 					assert.True(t, req.IncludeCustomFieldValues)
 					assert.True(t, req.IncludeIncidentChannels)
+					writeJSON(w, map[string]any{
+						"incidentPreviews": []map[string]any{
+							{
+								"incidentID": "inc-keyed",
+								"title":      "Keyed squad",
+								"status":     "active",
+								"labels":     []map[string]any{{"key": "squad", "label": "mimir"}},
+							},
+							{
+								"incidentID": "inc-legacy",
+								"title":      "Legacy tag",
+								"status":     "active",
+								"labels":     []map[string]any{{"key": "Tags", "label": "squad:mimir"}},
+							},
+							{
+								"incidentID": "inc-other",
+								"title":      "Other squad",
+								"status":     "active",
+								"labels":     []map[string]any{{"key": "squad", "label": "tempo"}},
+							},
+						},
+						"cursor": map[string]any{"hasMore": false},
+					})
+				}
+			},
+			wantIDs:   []string{"inc-keyed", "inc-legacy"},
+			wantCalls: 1,
+		},
+		{
+			// QueryIncidentPreviews can carry a label's text in `value`
+			// rather than `label`; incidentLabelValue falls back to it, so
+			// value-only labels must match both key:value filters (keyed
+			// branch) and bare label-text filters (direct branch).
+			name:  "matches labels carrying value instead of label",
+			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{"squad:mimir", "security"}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.NotContains(t, (*calls)[0].Query, "queryString")
+					writeJSON(w, map[string]any{
+						"incidentPreviews": []map[string]any{
+							{
+								"incidentID": "inc-value",
+								"title":      "Value-only labels",
+								"status":     "active",
+								"labels": []map[string]any{
+									{"key": "squad", "value": "mimir"},
+									{"key": "Tags", "value": "security"},
+								},
+							},
+							{
+								"incidentID": "inc-partial",
+								"title":      "Missing security",
+								"status":     "active",
+								"labels":     []map[string]any{{"key": "squad", "value": "mimir"}},
+							},
+						},
+						"cursor": map[string]any{"hasMore": false},
+					})
+				}
+			},
+			wantIDs:   []string{"inc-value"},
+			wantCalls: 1,
+		},
+		{
+			name:  "labels with double quotes are matched client-side",
+			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{`the "big" outage`}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.NotContains(t, (*calls)[0].Query, "queryString")
+					writeJSON(w, map[string]any{
+						"incidentPreviews": []map[string]any{
+							{
+								"incidentID": "inc-quoted",
+								"title":      "Quoted label",
+								"status":     "active",
+								"labels":     []map[string]any{{"key": "Tags", "label": `the "big" outage`}},
+							},
+						},
+						"cursor": map[string]any{"hasMore": false},
+					})
+				}
+			},
+			wantIDs:   []string{"inc-quoted"},
+			wantCalls: 1,
+		},
+		{
+			name:  "keeps paging until enough client-side label matches are found",
+			query: irm.IncidentQuery{Limit: 1, IncidentLabels: []string{"component:warpstream"}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					req := (*calls)[len(*calls)-1]
+					assert.InDelta(t, 100, req.Query["limit"], 0)
+					switch len(*calls) {
+					case 1:
+						writeJSON(w, map[string]any{
+							"incidentPreviews": []map[string]any{
+								{
+									"incidentID": "inc-nonmatching",
+									"title":      "Other incident",
+									"status":     "active",
+									"labels":     []map[string]any{{"key": "component", "label": "database"}},
+								},
+							},
+							"cursor": map[string]any{"hasMore": true, "nextValue": "cursor-1"},
+						})
+					default:
+						writeJSON(w, map[string]any{
+							"incidentPreviews": []map[string]any{
+								{
+									"incidentID": "inc-warpstream",
+									"title":      "WarpStream incident",
+									"status":     "active",
+									"labels":     []map[string]any{{"key": "component", "label": "warpstream"}},
+								},
+							},
+							"cursor": map[string]any{"hasMore": false},
+						})
+					}
+				}
+			},
+			wantIDs:   []string{"inc-warpstream"},
+			wantCalls: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { runClientListCase(t, tt) })
+	}
+}
+
+// TestClient_List_StatusFilters covers the status filter compiling into
+// query-string terms: a single bare status, multiple statuses ORed together,
+// and rejection of a status outside the supported enum.
+func TestClient_List_StatusFilters(t *testing.T) {
+	tests := []clientListCase{
+		{
+			name:  "single status becomes a bare status term",
+			query: irm.IncidentQuery{Limit: 10, Statuses: []string{"active"}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.Equal(t, "status:active", (*calls)[0].Query["queryString"])
 					writeJSON(w, previewsPage("p1", 1, false, ""))
 				}
 			},
@@ -272,16 +417,123 @@ func TestClient_List_Filters(t *testing.T) {
 			wantCalls: 1,
 		},
 		{
-			name:  "rejects labels containing a double quote",
-			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{`the "big" outage`}},
+			name:  "multiple statuses are ORed, not ANDed",
+			query: irm.IncidentQuery{Limit: 10, Statuses: []string{"active", "resolved"}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					// Juxtaposition would AND the statuses and match nothing.
+					assert.Equal(t, "or(status:active status:resolved)", (*calls)[0].Query["queryString"])
+					writeJSON(w, previewsPage("p1", 1, false, ""))
+				}
+			},
+			wantLen:   1,
+			wantCalls: 1,
+		},
+		{
+			name:  "rejects status outside the supported enum",
+			query: irm.IncidentQuery{Limit: 10, Statuses: []string{`active status:resolved`}},
 			handler: func(t *testing.T, _ *[]listRequest) http.HandlerFunc {
 				t.Helper()
 				return func(_ http.ResponseWriter, _ *http.Request) {
-					t.Error("API must not be called for an inexpressible label")
+					t.Error("API must not be called for an invalid status")
+				}
+			},
+			wantErr: "must be active or resolved",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { runClientListCase(t, tt) })
+	}
+}
+
+// TestClient_List_CombinedAndSeverityFilters covers filters composing into one
+// query string: labels, status and severity ANDed together, a raw query string
+// overriding the structured filters, and rejection of an inexpressible severity.
+func TestClient_List_CombinedAndSeverityFilters(t *testing.T) {
+	tests := []clientListCase{
+		{
+			name:  "labels, status and severity AND together",
+			query: irm.IncidentQuery{Limit: 10, IncidentLabels: []string{"security"}, Statuses: []string{"active"}, Severity: "major"},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.Equal(t, `status:active severity:"major"`, (*calls)[0].Query["queryString"])
+					writeJSON(w, map[string]any{
+						"incidentPreviews": []map[string]any{
+							{
+								"incidentID":    "inc-security",
+								"title":         "Security incident",
+								"status":        "active",
+								"severityLabel": "Major",
+								"labels":        []map[string]any{{"key": "Tags", "label": "security"}},
+							},
+							{
+								"incidentID":    "inc-other",
+								"title":         "Other incident",
+								"status":        "active",
+								"severityLabel": "Major",
+								"labels":        []map[string]any{{"key": "Tags", "label": "other"}},
+							},
+						},
+						"cursor": map[string]any{"hasMore": false},
+					})
+				}
+			},
+			wantIDs:   []string{"inc-security"},
+			wantCalls: 1,
+		},
+		{
+			name:  "raw query string is used verbatim and overrides structured filters",
+			query: irm.IncidentQuery{Limit: 10, QueryString: "isdrill:true", IncidentLabels: []string{"ignored"}, Statuses: []string{"active"}},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.Equal(t, "isdrill:true", (*calls)[0].Query["queryString"])
+					writeJSON(w, previewsPage("p1", 1, false, ""))
+				}
+			},
+			wantLen:   1,
+			wantCalls: 1,
+		},
+		{
+			name:  "raw query string skips structured filter validation",
+			query: irm.IncidentQuery{Limit: 10, QueryString: "isdrill:true", Statuses: []string{"not-a-status"}, Severity: `the "big" sev`},
+			handler: func(t *testing.T, calls *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(w http.ResponseWriter, _ *http.Request) {
+					assert.Equal(t, "isdrill:true", (*calls)[0].Query["queryString"])
+					writeJSON(w, previewsPage("p1", 1, false, ""))
+				}
+			},
+			wantLen:   1,
+			wantCalls: 1,
+		},
+		{
+			name:  "rejects severity containing a double quote",
+			query: irm.IncidentQuery{Limit: 10, Severity: `the "big" sev`},
+			handler: func(t *testing.T, _ *[]listRequest) http.HandlerFunc {
+				t.Helper()
+				return func(_ http.ResponseWriter, _ *http.Request) {
+					t.Error("API must not be called for an inexpressible severity")
 				}
 			},
 			wantErr: "cannot express values containing double quotes",
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { runClientListCase(t, tt) })
+	}
+}
+
+// TestClient_List_DateFiltersAndErrors covers the client-side date window (the
+// endpoint has no date fields): full-page fetches, the from/to bounds, missing
+// createdTime, early stop under newest-first order — plus surfacing an in-band
+// response error.
+func TestClient_List_DateFiltersAndErrors(t *testing.T) {
+	tests := []clientListCase{
 		{
 			name: "fetches full pages while date filtering",
 			query: irm.IncidentQuery{

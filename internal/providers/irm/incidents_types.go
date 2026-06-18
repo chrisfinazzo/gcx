@@ -165,6 +165,7 @@ type IncidentLabel struct {
 	Key         string `json:"key"`
 	KeyUUID     string `json:"keyUUID,omitempty"`
 	Label       string `json:"label,omitempty"`
+	Value       string `json:"value,omitempty"`
 	LabelUUID   string `json:"labelUUID,omitempty"`
 	ColorHex    string `json:"colorHex,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -190,6 +191,15 @@ type IncidentQuery struct {
 	DateFrom       *FlexTime
 	DateTo         *FlexTime
 	IncidentLabels []string
+	// Statuses filters by incident status (active/resolved). Multiple values
+	// are ORed together.
+	Statuses []string
+	// Severity filters by severity label (e.g. "major").
+	Severity string
+	// QueryString is a raw incident query-string-language expression. When
+	// set it is used verbatim and the structured filters above are ignored;
+	// the list command rejects combining them.
+	QueryString string
 }
 
 // incidentPreviewsQuery is the documented IncidentPreviewsQuery wire type.

@@ -291,7 +291,7 @@ func TestListOpts_LabelValidation(t *testing.T) {
 		},
 		{
 			// Keyed labels are matched by their key:value composite.
-			name:   "key:value text passes through verbatim",
+			name:   "key:value text passes",
 			labels: []string{"team:platform"},
 		},
 		{
@@ -300,12 +300,8 @@ func TestListOpts_LabelValidation(t *testing.T) {
 			wantErr: "label must not be empty",
 		},
 		{
-			// The query-string language rejects double quotes inside
-			// single-quoted values, so a label containing a double quote
-			// cannot be expressed at all.
-			name:    "label with a double quote fails",
-			labels:  []string{`the "big" outage`},
-			wantErr: "cannot contain double quotes",
+			name:   "label with a double quote passes",
+			labels: []string{`the "big" outage`},
 		},
 		{
 			// Apostrophes are fine: double-quoted values may contain them.
@@ -315,7 +311,64 @@ func TestListOpts_LabelValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := irm.NewTestListCommand(tt.labels, "", "")
+			cmd := irm.NewTestListCommand(tt.labels, nil, "", "", "", "")
+			cmd.SetArgs([]string{})
+			err := cmd.Execute()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestListOpts_FilterValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		statuses []string
+		severity string
+		query    string
+		labels   []string
+		wantErr  string
+	}{
+		{name: "valid status", statuses: []string{"active"}},
+		{name: "both statuses", statuses: []string{"active", "resolved"}},
+		{name: "valid severity", severity: "major"},
+		{name: "query alone", query: "isdrill:true"},
+		{
+			name:     "unknown status",
+			statuses: []string{"pending"},
+			wantErr:  "must be active or resolved",
+		},
+		{
+			name:     "severity with a double quote",
+			severity: `the "big" sev`,
+			wantErr:  "cannot contain double quotes",
+		},
+		{
+			name:    "query combined with labels",
+			query:   "isdrill:true",
+			labels:  []string{"security"},
+			wantErr: "--query cannot be combined",
+		},
+		{
+			name:     "query combined with status",
+			query:    "isdrill:true",
+			statuses: []string{"active"},
+			wantErr:  "--query cannot be combined",
+		},
+		{
+			name:     "query combined with severity",
+			query:    "isdrill:true",
+			severity: "major",
+			wantErr:  "--query cannot be combined",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := irm.NewTestListCommand(tt.labels, tt.statuses, tt.severity, tt.query, "", "")
 			cmd.SetArgs([]string{})
 			err := cmd.Execute()
 			if tt.wantErr != "" {
@@ -339,8 +392,8 @@ func (l fakeGrafanaConfigLoader) LoadGrafanaConfig(context.Context) (config.Name
 
 // TestIncidentsListCommand_BuildsQuery runs the real list command against a
 // fake API and asserts the flags land in a QueryIncidentPreviews request:
-// labels become quoted query-string terms, and the date flags never reach
-// the wire (the endpoint has no date fields) but are enforced client-side.
+// labels and date flags never reach the wire (the endpoint has no structured
+// fields for them) but are enforced client-side.
 func TestIncidentsListCommand_BuildsQuery(t *testing.T) {
 	t.Setenv("GCX_AGENT_MODE", "false")
 	agent.ResetForTesting()
@@ -355,8 +408,31 @@ func TestIncidentsListCommand_BuildsQuery(t *testing.T) {
 		query = body.Query
 		writeJSON(w, map[string]any{
 			"incidentPreviews": []map[string]any{
-				{"incidentID": "inc-1", "title": "Security incident", "status": "active", "severityLabel": "Major", "createdTime": "2024-06-10T12:00:00Z"},
-				{"incidentID": "inc-2", "title": "Too old", "status": "resolved", "createdTime": "2024-05-01T12:00:00Z"},
+				{
+					"incidentID":    "inc-1",
+					"title":         "Security incident",
+					"status":        "active",
+					"severityLabel": "Major",
+					"createdTime":   "2024-06-10T12:00:00Z",
+					"labels": []map[string]any{
+						{"key": "Tags", "label": "security"},
+						{"key": "Tags", "label": "PIR not needed"},
+					},
+				},
+				{
+					"incidentID":  "inc-2",
+					"title":       "Too old",
+					"status":      "resolved",
+					"createdTime": "2024-05-01T12:00:00Z",
+					"labels":      []map[string]any{{"key": "Tags", "label": "security"}},
+				},
+				{
+					"incidentID":  "inc-3",
+					"title":       "Wrong label",
+					"status":      "active",
+					"createdTime": "2024-06-10T12:00:00Z",
+					"labels":      []map[string]any{{"key": "Tags", "label": "security"}},
+				},
 			},
 			"cursor": map[string]any{"hasMore": false},
 		})
@@ -375,13 +451,15 @@ func TestIncidentsListCommand_BuildsQuery(t *testing.T) {
 	cmd.SetErr(&stderr)
 	cmd.SetArgs([]string{
 		"--labels", "security,PIR not needed",
+		"--status", "active",
+		"--severity", "major",
 		"--from", "2024-06-01T00:00:00Z",
 		"--to", "2024-06-15T00:00:00Z",
 		"--limit", "10",
 	})
 	require.NoError(t, cmd.Execute())
 
-	assert.Equal(t, `label:"security" label:"PIR not needed"`, query["queryString"])
+	assert.Equal(t, `status:active severity:"major"`, query["queryString"])
 	assert.NotContains(t, query, "incidentLabels")
 	assert.NotContains(t, query, "dateFrom")
 	assert.NotContains(t, query, "dateTo")
@@ -394,6 +472,7 @@ func TestIncidentsListCommand_BuildsQuery(t *testing.T) {
 	assert.Contains(t, out, "Security incident")
 	assert.Contains(t, out, "Major", "severityLabel must surface in the SEVERITY column")
 	assert.NotContains(t, out, "inc-2", "incidents outside --from/--to must be filtered client-side")
+	assert.NotContains(t, out, "inc-3", "incidents missing one --labels value must be filtered client-side")
 }
 
 func TestIncidentsListCommand_RejectsNonPositiveLimit(t *testing.T) {
@@ -455,7 +534,7 @@ func TestListOpts_DateValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := irm.NewTestListCommand(nil, tt.dateFrom, tt.dateTo)
+			cmd := irm.NewTestListCommand(nil, nil, "", "", tt.dateFrom, tt.dateTo)
 			cmd.SetArgs([]string{})
 			err := cmd.Execute()
 			if tt.wantErr != "" {

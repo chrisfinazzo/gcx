@@ -58,41 +58,149 @@ func NewIncidentClient(cfg config.NamespacedRESTConfig) (*IncidentClient, error)
 const incidentsMaxPageSize = 100
 
 // quoteIncidentQueryValue wraps a value for the incident query-string
-// language, which requires quoting for values containing spaces or colons.
-// Double-quoted values match both Tags-key label text and keyed key:value
-// composites and may themselves contain single quotes. The reverse does not
-// hold — the server rejects double quotes inside single-quoted values — so
-// values containing a double quote cannot be expressed in the language and
-// are rejected by List and by the list command's validation.
+// language, which requires quoting for values containing spaces.
 func quoteIncidentQueryValue(v string) string {
 	return `"` + v + `"`
 }
 
-// buildLabelsQueryString translates label filters into query-string terms.
-// Juxtaposed label terms AND together, which matches the behaviour of the
-// structured incidentLabels filter on the deprecated QueryIncidents endpoint
-// (verified live: identical result sets).
-func buildLabelsQueryString(labels []string) string {
-	terms := make([]string, len(labels))
-	for i, l := range labels {
-		terms[i] = "label:" + quoteIncidentQueryValue(l)
+func isIncidentStatusFilter(s string) bool {
+	return s == "active" || s == "resolved"
+}
+
+func incidentLabelValue(l IncidentLabel) string {
+	if l.Label != "" {
+		return l.Label
+	}
+	return l.Value
+}
+
+func incidentMatchesLabel(labels []IncidentLabel, filter string) bool {
+	key, value, keyed := strings.Cut(filter, ":")
+	for _, l := range labels {
+		labelValue := incidentLabelValue(l)
+		if labelValue == filter {
+			return true
+		}
+		if keyed && key != "" && value != "" && l.Key == key && labelValue == value {
+			return true
+		}
+	}
+	return false
+}
+
+func incidentMatchesLabels(labels []IncidentLabel, filters []string) bool {
+	for _, f := range filters {
+		if !incidentMatchesLabel(labels, f) {
+			return false
+		}
+	}
+	return true
+}
+
+// buildIncidentQueryString compiles the structured filters into a single
+// incident query-string-language expression. A non-empty query.QueryString is
+// used verbatim (raw escape hatch) and the structured filters are ignored.
+//
+// Terms are juxtaposed, which the language treats as AND; values within the
+// multi-valued statuses filter are ORed with or(...) so that two statuses
+// match either, not both at once. Verified live against QueryIncidentPreviews.
+func buildIncidentQueryString(query IncidentQuery) string {
+	if query.QueryString != "" {
+		return query.QueryString
+	}
+
+	var terms []string
+	if len(query.Statuses) > 0 {
+		statusTerms := make([]string, len(query.Statuses))
+		for i, s := range query.Statuses {
+			statusTerms[i] = "status:" + s
+		}
+		if len(statusTerms) == 1 {
+			terms = append(terms, statusTerms[0])
+		} else {
+			// or(...) — match any of the statuses; juxtaposition would AND
+			// them and match nothing.
+			terms = append(terms, "or("+strings.Join(statusTerms, " ")+")")
+		}
+	}
+	if query.Severity != "" {
+		terms = append(terms, "severity:"+quoteIncidentQueryValue(query.Severity))
 	}
 	return strings.Join(terms, " ")
+}
+
+// validateIncidentQuery rejects filter values the incident query-string
+// language cannot express: a status outside the supported enum, or a severity
+// containing a double quote. A raw query string is the complete server-side
+// expression, so structured fields are ignored and not validated.
+func validateIncidentQuery(query IncidentQuery) error {
+	if query.QueryString != "" {
+		return nil
+	}
+	for _, s := range query.Statuses {
+		if !isIncidentStatusFilter(s) {
+			return fmt.Errorf("incidents: invalid status %q: must be active or resolved", s)
+		}
+	}
+	if strings.Contains(query.Severity, `"`) {
+		return fmt.Errorf("incidents: invalid severity %q: the incident query-string language cannot express values containing double quotes", query.Severity)
+	}
+	return nil
+}
+
+// incidentPreviewFilter enforces the bounds QueryIncidentPreviews has no fields
+// for: the createdTime window (dateFrom inclusive, dateTo exclusive) and label
+// matching. A zero from/to disables that side of the window; empty labels
+// disables label matching.
+type incidentPreviewFilter struct {
+	from, to    time.Time
+	newestFirst bool
+	labels      []string
+}
+
+// classify reports whether a preview should be kept (first result) and whether
+// paging can stop early because the newest-first crawl has passed the
+// from-bound (second result); when stop is true, keep is always false.
+func (f incidentPreviewFilter) classify(p IncidentPreview) (bool, bool) {
+	created := time.Time(p.CreatedTime)
+	if created.IsZero() {
+		// A preview without a createdTime cannot be placed in the requested
+		// window, so date-bounded queries exclude it.
+		if !f.from.IsZero() || !f.to.IsZero() {
+			return false, false
+		}
+		return f.matchesLabels(p), false
+	}
+	if !f.from.IsZero() && created.Before(f.from) {
+		return false, f.newestFirst
+	}
+	if !f.to.IsZero() && !created.Before(f.to) {
+		return false, false
+	}
+	return f.matchesLabels(p), false
+}
+
+func (f incidentPreviewFilter) matchesLabels(p IncidentPreview) bool {
+	if len(f.labels) == 0 {
+		return true
+	}
+	return incidentMatchesLabels(p.Labels, f.labels)
 }
 
 // List queries incident previews with the given parameters, following the
 // response cursor until query.Limit incidents are collected or the server
 // reports no more pages. A non-positive query.Limit defaults to 100.
 //
-// QueryIncidentPreviews has no structured filter fields: label filters are
-// translated into the query-string language, and date bounds — which even
-// the deprecated QueryIncidents endpoint ignored server-side — are enforced
-// here on createdTime, dateFrom inclusive and dateTo exclusive.
+// QueryIncidentPreviews has no structured filter fields: statuses and severity
+// are compiled into the query-string language. Label and date bounds are
+// enforced here against returned previews: labels are matched as either plain
+// label text or key:value pairs, and createdTime uses dateFrom inclusive and
+// dateTo exclusive. Because that matching is client-side, a highly selective
+// label or date filter can page through the full history before collecting
+// query.Limit results.
 func (c *IncidentClient) List(ctx context.Context, query IncidentQuery) ([]Incident, error) {
-	for _, l := range query.IncidentLabels {
-		if strings.Contains(l, `"`) {
-			return nil, fmt.Errorf("incidents: invalid label %q: the incident query-string language cannot express values containing double quotes", l)
-		}
+	if err := validateIncidentQuery(query); err != nil {
+		return nil, err
 	}
 
 	if query.Limit <= 0 {
@@ -108,7 +216,7 @@ func (c *IncidentClient) List(ctx context.Context, query IncidentQuery) ([]Incid
 	wire := incidentPreviewsQuery{
 		OrderDirection: query.OrderDirection,
 		OrderField:     query.OrderField,
-		QueryString:    buildLabelsQueryString(query.IncidentLabels),
+		QueryString:    buildIncidentQueryString(query),
 	}
 
 	var from, to time.Time
@@ -118,10 +226,19 @@ func (c *IncidentClient) List(ctx context.Context, query IncidentQuery) ([]Incid
 	if query.DateTo != nil {
 		to = time.Time(*query.DateTo)
 	}
-	dateBounded := !from.IsZero() || !to.IsZero()
-	// With the default createdTime-descending order, every incident after the
-	// first one older than `from` is older too, so paging can stop early.
-	newestFirst := query.OrderDirection == "DESC" && query.OrderField == "createdTime"
+	labelFiltered := query.QueryString == "" && len(query.IncidentLabels) > 0
+	filter := incidentPreviewFilter{
+		from: from,
+		to:   to,
+		// With the default createdTime-descending order, every incident after
+		// the first one older than `from` is older too, so paging can stop
+		// early.
+		newestFirst: query.OrderDirection == "DESC" && query.OrderField == "createdTime",
+	}
+	if labelFiltered {
+		filter.labels = query.IncidentLabels
+	}
+	clientFiltered := !from.IsZero() || !to.IsZero() || labelFiltered
 
 	limit := query.Limit
 	var (
@@ -130,11 +247,11 @@ func (c *IncidentClient) List(ctx context.Context, query IncidentQuery) ([]Incid
 		pastFrom bool
 	)
 	for {
-		if dateBounded {
-			// Date filtering happens client-side, so a page can contribute
-			// anywhere from zero to all of its previews. Fetch full pages to
-			// keep the crawl towards the bounds short; the result is
-			// truncated to limit below.
+		if clientFiltered {
+			// Client-side filters can discard any number of previews, so a
+			// page can contribute anywhere from zero to all of its previews.
+			// Fetch full pages to keep the crawl towards the bounds short;
+			// the result is truncated to limit below.
 			wire.Limit = incidentsMaxPageSize
 		} else {
 			wire.Limit = min(limit-len(all), incidentsMaxPageSize)
@@ -145,26 +262,16 @@ func (c *IncidentClient) List(ctx context.Context, query IncidentQuery) ([]Incid
 		}
 
 		for _, preview := range resp.IncidentPreviews {
-			created := time.Time(preview.CreatedTime)
-			if created.IsZero() {
-				// A preview without a createdTime cannot be placed in the
-				// requested window, so date-bounded queries exclude it.
-				if from.IsZero() && to.IsZero() {
-					all = append(all, preview.ToIncident())
-				}
-				continue
+			keep, stop := filter.classify(preview)
+			if stop {
+				// Newest-first crawl passed the from-bound; no later preview
+				// can fall in range.
+				pastFrom = true
+				break
 			}
-			if !from.IsZero() && created.Before(from) {
-				if newestFirst {
-					pastFrom = true
-					break
-				}
-				continue
+			if keep {
+				all = append(all, preview.ToIncident())
 			}
-			if !to.IsZero() && !created.Before(to) {
-				continue
-			}
-			all = append(all, preview.ToIncident())
 		}
 
 		if len(all) >= limit {
