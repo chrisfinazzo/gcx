@@ -37,10 +37,8 @@ func (opts *pyroscopeMetricsOpts) setup(flags *pflag.FlagSet) {
 	opts.shared.IO.DefaultFormat("table")
 	opts.shared.IO.BindFlags(flags)
 
-	flags.StringVar(&opts.shared.From, "from", "", "Start time (RFC3339, Unix timestamp, or relative like 'now-1h')")
-	flags.StringVar(&opts.shared.To, "to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
+	opts.shared.SetupTimeFlags(flags)
 	flags.StringVar(&opts.shared.Step, "step", "", "Query step (e.g., '15s', '1m')")
-	flags.StringVar(&opts.shared.Since, "since", "", "Duration before --to (or now if omitted); mutually exclusive with --from")
 
 	opts.shared.SetupExprFlag(flags)
 	flags.StringVarP(&opts.Datasource, "datasource", "d", "", "Datasource UID (required unless datasources.pyroscope is configured)")

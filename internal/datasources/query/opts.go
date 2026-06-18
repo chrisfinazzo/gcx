@@ -20,9 +20,20 @@ type TimeRangeOpts struct {
 
 // SetupTimeFlags registers --from, --to, and --since flags on the given flag set.
 func (opts *TimeRangeOpts) SetupTimeFlags(flags *pflag.FlagSet) {
-	flags.StringVar(&opts.From, "from", "", "Start time (RFC3339, Unix timestamp, or relative like 'now-1h')")
-	flags.StringVar(&opts.To, "to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
-	flags.StringVar(&opts.Since, "since", "", "Duration before --to (or now if omitted); mutually exclusive with --from")
+	flags.StringVar(&opts.From, "from", "",
+		"Start of the query time range.\n"+
+			"Accepted formats: RFC3339 (e.g. <date>T<time>Z), Unix timestamp (e.g. 1718143200),\n"+
+			"or relative to now (e.g. now-2h, now-30m, now-7d). Units: s, m, h, d, w, M, y.\n"+
+			"Must be paired with --to. Mutually exclusive with --since.")
+	flags.StringVar(&opts.To, "to", "",
+		"End of the query time range.\n"+
+			"Accepted formats: RFC3339 (e.g. <date>T<time>Z), Unix timestamp, or relative (e.g. now, now-1h).\n"+
+			"Must be paired with --from, or used alone with --since to anchor the window end.\n"+
+			"Defaults to now when --since is set and --to is omitted.")
+	flags.StringVar(&opts.Since, "since", "",
+		"Duration of the query window, counted back from --to (or now if --to is omitted).\n"+
+			"Accepted formats: 15s, 30m, 2h, 1h30m, 7d, 2w, 1M, 1y. Units: s, m, h, d, w, M, y.\n"+
+			"Mutually exclusive with --from. Example: --since 2h --to now anchors a 2-hour window ending now.")
 }
 
 // ValidateTimeRange validates --from/--to pairing and resolves --since into From/To.
