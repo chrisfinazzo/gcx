@@ -31,6 +31,23 @@ func DetectTarget(ctx context.Context, server string, httpClient *http.Client) (
 	return probeTarget(ctx, server, httpClient)
 }
 
+// IsLocalhostServer reports whether the server URL points at a loopback address
+// (localhost, 127.0.0.0/8, ::1, *.localhost). Local dev Grafana instances are
+// classified on-prem but can still drive the OAuth PKCE flow, so the login menu
+// uses this to keep OAuth on offer for them.
+func IsLocalhostServer(server string) bool {
+	parsed, err := url.Parse(server)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // isLocalHostname returns true for loopback addresses, RFC 1918 private IPv4 ranges,
 // and IPv6 ULA (fd00::/8). Enterprise-intranet suffixes (.local, .internal, .corp, .lan)
 // are NOT treated as local — NC-009.

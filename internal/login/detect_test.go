@@ -52,6 +52,35 @@ func TestIsLocalHostname(t *testing.T) {
 	}
 }
 
+func TestIsLocalhostServer(t *testing.T) {
+	tests := []struct {
+		server string
+		want   bool
+	}{
+		{"http://localhost:3000", true},
+		{"https://localhost", true},
+		{"http://127.0.0.1:3000", true},
+		{"http://127.1.2.3", true},
+		{"http://[::1]:3000", true},
+		{"http://foo.localhost:3000", true},
+		// Private LAN ranges are on-prem, not localhost
+		{"http://10.0.0.1", false},
+		{"http://192.168.1.1:3000", false},
+		// Public hosts
+		{"https://mystack.grafana.net", false},
+		{"https://grafana.example.com", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.server, func(t *testing.T) {
+			got := IsLocalhostServer(tt.server)
+			if got != tt.want {
+				t.Errorf("IsLocalhostServer(%q) = %v, want %v", tt.server, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDetectTargetDomainRouting(t *testing.T) {
 	client := &http.Client{}
 	tests := []struct {

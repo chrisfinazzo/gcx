@@ -231,7 +231,9 @@ func (f *Flow) startCallbackServer(ctx context.Context, listener net.Listener, e
 				renderErrorPage(w, "Invalid instance endpoint passed")
 				return
 			}
-			if instanceEndpointUrl.Scheme != "https" {
+			// Local dev Grafana is served over plain http on a loopback address;
+			// allow it so the OAuth flow works against localhost.
+			if instanceEndpointUrl.Scheme != "https" && !isLoopbackHost(instanceEndpointUrl.Hostname()) {
 				errCh <- fmt.Errorf("invalid endpoint scheme: expected 'https', got '%s'", instanceEndpointUrl.Scheme)
 				renderErrorPage(w, "Invalid instance endpoint: needs to be an HTTPS URL")
 				return
@@ -279,6 +281,17 @@ var allowedDomainSuffixes = []string{ //nolint:gochecknoglobals
 
 // ValidateEndpointURL checks that the given endpoint URL is a trusted Grafana domain
 // or a local address. Returns an error if the URL is untrusted.
+// isLoopbackHost reports whether host is a loopback address (localhost,
+// 127.0.0.0/8, ::1, *.localhost). Used to allow plain-http instance endpoints
+// for local dev Grafana.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func ValidateEndpointURL(endpoint string) error {
 	u, err := url.Parse(endpoint)
 	if err != nil {

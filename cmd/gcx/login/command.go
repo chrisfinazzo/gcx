@@ -368,6 +368,8 @@ func askForInput(e *login.ErrNeedInput, opts *login.Options, sourceCtx *config.C
 // The auth-method menu is tailored to the resolved target:
 //   - On-prem: OAuth is not offered (the Grafana instance cannot issue the
 //     tokens our OAuth flow relies on). The token prompt is shown directly.
+//     Exception: a localhost server is a local dev Grafana, which can still
+//     drive the OAuth flow, so OAuth stays on offer for it.
 //   - Cloud: OAuth is offered first as the recommended path, with token as
 //     the fallback.
 //   - Unknown (target still ambiguous): both options are offered, token
@@ -393,6 +395,11 @@ func askGrafanaAuth(opts *login.Options, existingToken string) error {
 			options = []huh.Option[string]{mtlsOption, tokenOption}
 		} else {
 			options = []huh.Option[string]{tokenOption}
+		}
+		// A localhost server is a local dev Grafana, which can still drive the
+		// OAuth PKCE flow even though it's classified on-prem. Keep OAuth on offer.
+		if login.IsLocalhostServer(opts.Server) {
+			options = append(options, oauthOption)
 		}
 	case login.TargetCloud:
 		options = []huh.Option[string]{oauthOption, tokenOption}
