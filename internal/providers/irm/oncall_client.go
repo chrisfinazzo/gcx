@@ -41,6 +41,11 @@ const (
 	resolutionNotesPath    = "resolution_notes/"
 	shiftSwapsPath         = "shift_swaps/"
 	directPagingPath       = "direct_paging"
+	// oncallCompliancePath is the OnCall compliance ruleset resource. NOTE: the real
+	// endpoint lives on the OnCall *public* API (GET/POST /api/v1/oncall_compliance/,
+	// with an Authorization token + X-Grafana-Instance-ID header), not the plugin-proxy
+	// /api/internal/v1 surface the rest of this client uses. Transport is wired later.
+	oncallCompliancePath = "oncall_compliance/"
 )
 
 var _ OnCallAPI = (*OnCallClient)(nil)
@@ -750,4 +755,30 @@ func (c *OnCallClient) TakeShiftSwap(ctx context.Context, id string, input TakeS
 
 func (c *OnCallClient) CreateDirectPaging(ctx context.Context, input DirectPagingInput) (*DirectPagingResult, error) {
 	return createResource[DirectPagingInput, DirectPagingResult](ctx, c, directPagingPath, input, "direct paging")
+}
+
+// --- Compliance Rules ---
+
+// GetComplianceRules fetches the org's notification compliance rules.
+func (c *OnCallClient) GetComplianceRules(ctx context.Context) (*ComplianceRules, error) {
+	resp, err := c.DoRequest(ctx, http.MethodGet, oncallCompliancePath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("irm: get compliance rules: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, handleErrorResponse(resp)
+	}
+
+	var result ComplianceRules
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("irm: decode compliance rules: %w", err)
+	}
+	return &result, nil
+}
+
+// SetComplianceRules creates or updates the org's notification compliance rules.
+func (c *OnCallClient) SetComplianceRules(ctx context.Context, rules ComplianceRules) (*ComplianceRules, error) {
+	return createResource[ComplianceRules, ComplianceRules](ctx, c, oncallCompliancePath, rules, "compliance rules")
 }
