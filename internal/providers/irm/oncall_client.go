@@ -88,10 +88,43 @@ func handleErrorResponse(resp *http.Response) error {
 	if err != nil {
 		return fmt.Errorf("request failed with status %d (could not read body: %w)", resp.StatusCode, err)
 	}
-	if len(body) > 0 {
-		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	if msg := summarizeErrorBody(resp, body); msg != "" {
+		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, msg)
 	}
 	return fmt.Errorf("request failed with status %d", resp.StatusCode)
+}
+
+// summarizeErrorBody turns an error response body into a concise message. HTML pages
+// (e.g. a Django debug/error page) are never dumped verbatim — only their <title> is
+// surfaced; other bodies are returned trimmed and length-capped.
+func summarizeErrorBody(resp *http.Response, body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/html") || trimmed[0] == '<' {
+		return htmlTitle(trimmed) // "" when no <title>, leaving just the status code
+	}
+	const maxLen = 500
+	if len(trimmed) > maxLen {
+		return string(trimmed[:maxLen]) + "…"
+	}
+	return string(trimmed)
+}
+
+// htmlTitle extracts and whitespace-normalizes the <title> of an HTML document.
+func htmlTitle(b []byte) string {
+	lower := bytes.ToLower(b)
+	start := bytes.Index(lower, []byte("<title>"))
+	if start < 0 {
+		return ""
+	}
+	start += len("<title>")
+	end := bytes.Index(lower[start:], []byte("</title>"))
+	if end < 0 {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(b[start:start+end])), " ")
 }
 
 type paginatedResponse[T any] struct {

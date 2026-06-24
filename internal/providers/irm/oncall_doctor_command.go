@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/grafana/gcx/internal/format"
@@ -99,10 +100,8 @@ func (r DoctorResult) label() string {
 // doctorResultFor finds userID in the evaluation report. A user absent from both lists
 // is reported as not found (the backend may omit users with no notification setup).
 func doctorResultFor(userID string, e *ComplianceEvaluation) DoctorResult {
-	for _, id := range e.Compliant {
-		if id == userID {
-			return DoctorResult{UserID: userID, Compliant: true, Found: true}
-		}
+	if slices.Contains(e.Compliant, userID) {
+		return DoctorResult{UserID: userID, Compliant: true, Found: true}
 	}
 	for _, u := range e.NonCompliant {
 		if u.UserID == userID {

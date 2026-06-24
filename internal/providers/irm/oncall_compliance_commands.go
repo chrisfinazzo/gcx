@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/style"
@@ -113,7 +114,7 @@ func newComplianceRulesCmd(loader OnCallConfigLoader) *cobra.Command {
 	cmd.AddCommand(
 		newComplianceRulesGetCmd(loader),
 		newComplianceRulesSetCmd(loader),
-		newComplianceEvaluateCmd(loader),
+		newComplianceEvaluateCmd(),
 	)
 	return cmd
 }
@@ -282,7 +283,7 @@ type complianceEvaluateOpts struct {
 	transport complianceTransport
 }
 
-func newComplianceEvaluateCmd(loader OnCallConfigLoader) *cobra.Command {
+func newComplianceEvaluateCmd() *cobra.Command {
 	opts := &complianceEvaluateOpts{}
 	cmd := &cobra.Command{
 		Use:   "evaluate",
@@ -369,7 +370,9 @@ type publicUsersPage struct {
 // ListUsers returns org users keyed by their OnCall user ID (follows pagination).
 func (c *publicComplianceClient) ListUsers(ctx context.Context) (map[string]publicUser, error) {
 	out := make(map[string]publicUser)
-	url := c.baseURL + "/api/v1/users/"
+	// short=true returns the lightweight user list (id/email/username/…) and skips the
+	// per-user Slack enrichment that otherwise 500s when a Slack integration is unhealthy.
+	url := c.baseURL + "/api/v1/users/?short=true"
 	for url != "" {
 		resp, err := c.doURL(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -550,12 +553,24 @@ func (c *evaluationTableCodec) Encode(w io.Writer, v any) error {
 		for i, viol := range u.Violations {
 			problems[i] = friendlyViolation(viol)
 		}
-		t.Row("non-compliant", u.name(), strings.Join(problems, "; "))
+		t.Row(complianceStatusIcon(false), u.name(), strings.Join(problems, "; "))
 	}
 	for _, u := range e.Compliant {
-		t.Row("compliant", u.name(), "-")
+		t.Row(complianceStatusIcon(true), u.name(), "-")
 	}
 	return t.Render(w)
+}
+
+// complianceStatusIcon returns a green ✓ for compliant, a red ✗ otherwise. Falls back
+// to the bare glyph when styling is disabled (piped output / --no-color).
+func complianceStatusIcon(compliant bool) string {
+	if !compliant {
+		return style.ColorCell("✗", false, true)
+	}
+	if style.IsStylingEnabled() {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7EB26D")).Render("✓")
+	}
+	return "✓"
 }
 
 // complianceEvaluationTextCodec renders an evaluationView report.
