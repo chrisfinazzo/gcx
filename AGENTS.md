@@ -105,6 +105,7 @@ internal/
 ├── providers/   Provider plugin system (interface, registry, self-registration)
 │   ├── alert/      Alert provider (rules, groups — read-only)
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
+│   ├── datasources/ Datasources-as-resources provider (TypedCRUD adapter over the legacy /api/datasources REST API; synthetic GVK datasource.grafana.app/v0alpha1 since Grafana Cloud does not expose datasources via /apis — exposed through `gcx resources`, no commands of its own)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`
 │   ├── fleet/      Fleet Management provider (pipeline and collector resources)
 │   ├── instrumentation/  Instrumentation Hub provider (typed connect-go client, RMW with optimistic-lock, output codecs, helm formatter, enumerate helper)

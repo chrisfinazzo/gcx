@@ -3,6 +3,7 @@ package datasources
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -36,6 +37,13 @@ func (e *APIError) Error() string {
 
 func (e *APIError) HTTPStatusCode() int {
 	return e.StatusCode
+}
+
+// NotFound reports whether the error represents an HTTP 404 from the datasource
+// API. The resource adapter uses this to translate misses into Kubernetes-style
+// NotFound so the push pipeline falls through to Create.
+func (e *APIError) NotFound() bool {
+	return e.StatusCode == http.StatusNotFound
 }
 
 func (e *APIError) APIServiceName() string {
