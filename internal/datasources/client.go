@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -135,27 +136,8 @@ func (c *Client) Update(ctx context.Context, uid string, ds *Datasource) (*Datas
 // Delete removes the datasource identified by uid via DELETE
 // /api/datasources/uid/{uid}.
 func (c *Client) Delete(ctx context.Context, uid string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.host+datasourceByUIDPath+url.PathEscape(uid), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to delete datasource: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := httputils.ReadResponseBody(resp.Body, maxResponseBytes)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return NewAPIError("delete datasource", uid, resp.StatusCode, body)
-	}
-
-	return nil
+	_, err := c.do(ctx, http.MethodDelete, c.host+datasourceByUIDPath+url.PathEscape(uid), "delete datasource", uid, nil)
+	return err
 }
 
 func (c *Client) write(ctx context.Context, method, endpoint, operation, identifier string, ds *Datasource) (*Datasource, error) {
@@ -164,11 +146,53 @@ func (c *Client) write(ctx context.Context, method, endpoint, operation, identif
 		return nil, fmt.Errorf("failed to encode datasource: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(payload))
+	body, err := c.do(ctx, method, endpoint, operation, identifier, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var wrapped mutationResponse
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return nil, fmt.Errorf("failed to parse %s response: %w", operation, err)
+	}
+	if wrapped.Datasource == nil {
+		return nil, fmt.Errorf("%s response did not include a datasource", operation)
+	}
+
+	return wrapped.Datasource, nil
+}
+
+func (c *Client) get(ctx context.Context, path, identifier string) (*Datasource, error) {
+	body, err := c.do(ctx, http.MethodGet, c.host+path, "get datasource", identifier, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var ds Datasource
+	if err := json.Unmarshal(body, &ds); err != nil {
+		return nil, fmt.Errorf("failed to parse datasource response: %w", err)
+	}
+
+	return &ds, nil
+}
+
+// do issues an HTTP request against the legacy datasource API, reads the
+// (size-limited) response body, and converts a non-200 status into an APIError.
+// operation names the action for error messages (e.g. "delete datasource");
+// a non-nil payload is sent as a JSON request body.
+func (c *Client) do(ctx context.Context, method, endpoint, operation, identifier string, payload []byte) ([]byte, error) {
+	var reqBody io.Reader
+	if payload != nil {
+		reqBody = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -185,42 +209,5 @@ func (c *Client) write(ctx context.Context, method, endpoint, operation, identif
 		return nil, NewAPIError(operation, identifier, resp.StatusCode, body)
 	}
 
-	var wrapped mutationResponse
-	if err := json.Unmarshal(body, &wrapped); err != nil {
-		return nil, fmt.Errorf("failed to parse %s response: %w", operation, err)
-	}
-	if wrapped.Datasource == nil {
-		return nil, fmt.Errorf("%s response did not include a datasource", operation)
-	}
-
-	return wrapped.Datasource, nil
-}
-
-func (c *Client) get(ctx context.Context, path, identifier string) (*Datasource, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.host+path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get datasource: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := httputils.ReadResponseBody(resp.Body, maxResponseBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, NewAPIError("get datasource", identifier, resp.StatusCode, body)
-	}
-
-	var ds Datasource
-	if err := json.Unmarshal(body, &ds); err != nil {
-		return nil, fmt.Errorf("failed to parse datasource response: %w", err)
-	}
-
-	return &ds, nil
+	return body, nil
 }
