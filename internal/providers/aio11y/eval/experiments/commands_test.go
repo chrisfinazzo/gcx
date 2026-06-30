@@ -15,11 +15,40 @@ func TestCommands_HasExpectedLeaves(t *testing.T) {
 	cmd := experiments.Commands(nil)
 	require.Equal(t, "experiments", cmd.Name())
 
-	for _, sub := range []string{"list", "get", "create", "update", "cancel", "scores", "report"} {
+	for _, sub := range []string{"list", "get", "create", "update", "cancel", "scores", "report", "test-suites", "trials"} {
 		c, _, err := cmd.Find([]string{sub})
 		require.NoError(t, err, "subcommand %q must exist", sub)
 		require.NotNil(t, c)
 		require.Equal(t, sub, c.Name())
+	}
+}
+
+func TestCommands_HasExpectedNestedExperimentLeaves(t *testing.T) {
+	cmd := experiments.Commands(nil)
+
+	for _, path := range [][]string{
+		{"test-suites", "list"},
+		{"test-suites", "get"},
+		{"test-suites", "create"},
+		{"test-suites", "update"},
+		{"test-suites", "versions", "create"},
+		{"test-suites", "versions", "publish"},
+		{"test-suites", "cases", "list"},
+		{"test-suites", "cases", "get"},
+		{"test-suites", "cases", "upsert"},
+		{"test-suites", "cases", "patch"},
+		{"test-suites", "cases", "delete"},
+		{"trials", "list"},
+		{"trials", "get"},
+		{"trials", "create"},
+		{"trials", "update"},
+		{"trials", "scores"},
+		{"trials", "artifacts"},
+	} {
+		c, _, err := cmd.Find(path)
+		require.NoError(t, err, "subcommand path %q must exist", strings.Join(path, " "))
+		require.NotNil(t, c)
+		require.Equal(t, path[len(path)-1], c.Name())
 	}
 }
 
@@ -172,7 +201,7 @@ func TestTableCodec_Encode(t *testing.T) {
 		{
 			name: "table format",
 			wide: false,
-			want: []string{"RUN-ID", "NAME", "STATUS", "COLLECTION-ID", "TAGS", "r-1", "exp-1", "running", "c-1", "support, prompt-v2"},
+			want: []string{"EXPERIMENT-ID", "NAME", "STATUS", "SUITE", "VERSION", "TAGS", "r-1", "exp-1", "running", "support, prompt-v2"},
 		},
 		{
 			name: "wide adds ERROR, COMPLETED, and DESCRIPTION",
