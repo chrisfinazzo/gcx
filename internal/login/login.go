@@ -325,6 +325,12 @@ func Run(ctx context.Context, opts *Options) (Result, error) {
 		case err == nil:
 			grafanaVersion = v
 
+		case errors.Is(err, context.Canceled):
+			// Ctrl+C during connectivity validation is a clean cancellation, not
+			// a reason to prompt "save anyway" - propagate it so it exits via the
+			// context.Canceled fast-path.
+			return Result{}, err
+
 		case errors.As(err, &capErr):
 			// The Cloud Access Policy (CAP) token is optional: its absence does
 			// not block login (resolveCloudAuth skips it under --yes/agent mode),

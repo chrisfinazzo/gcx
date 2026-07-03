@@ -132,7 +132,7 @@ func GetVersion(ctx context.Context, cfgCtx *config.Context) (*semver.Version, s
 	gClient := res.api
 	gClient.WithHTTPClient(httputils.NewDefaultClientWithTLS(ctx, res.tlsConfig))
 
-	healthResponse, err := gClient.Health.GetHealthWithParams(health.NewGetHealthParamsWithContext(ctx))
+	healthResponse, err := gClient.Health.GetHealthWithParams(health.NewGetHealthParams().WithContext(ctx))
 	if err != nil {
 		return nil, "", err
 	}

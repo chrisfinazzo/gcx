@@ -437,8 +437,9 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 	restCfg.WireTokenPersistence(cmd.Context(), source, gCtx.Name, cfg.Sources)
 
-	_, err = runWithContext(cmd.Context(), func() (*discovery.Registry, error) {
-		return discovery.NewDefaultRegistry(cmd.Context(), restCfg)
+	err = runWithContext(cmd.Context(), func() error {
+		_, err := discovery.NewDefaultRegistry(cmd.Context(), restCfg)
+		return err
 	})
 	if errors.Is(err, context.Canceled) {
 		return err
@@ -483,26 +484,20 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 // runWithContext runs fn in a goroutine and returns as soon as ctx is
 // cancelled, even if fn is still blocked. The connectivity check relies on
 // client-go discovery, whose HTTP calls run on their own internal context and
-// don't observe cancellation — without this a Ctrl+C during `config check`
+// don't observe cancellation - without this a Ctrl+C during `config check`
 // would hang until the client-go request timeout (32s) expired. The abandoned
 // goroutine is reclaimed when the process exits.
-func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
-	type result struct {
-		val T
-		err error
-	}
-	done := make(chan result, 1)
+func runWithContext(ctx context.Context, fn func() error) error {
+	done := make(chan error, 1)
 	go func() {
-		val, err := fn()
-		done <- result{val: val, err: err}
+		done <- fn()
 	}()
 
 	select {
 	case <-ctx.Done():
-		var zero T
-		return zero, ctx.Err()
-	case r := <-done:
-		return r.val, r.err
+		return ctx.Err()
+	case err := <-done:
+		return err
 	}
 }
 
