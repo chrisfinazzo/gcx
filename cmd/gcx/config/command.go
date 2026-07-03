@@ -362,7 +362,13 @@ func checkCmd(configOpts *Options) *cobra.Command {
 
 			var checkErr error
 			for _, gCtx := range cfg.Contexts {
+				if err := cmd.Context().Err(); err != nil {
+					return err
+				}
 				if err := checkContext(cmd, cfg, gCtx, configOpts.ConfigSource()); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return err
+					}
 					checkErr = err
 				}
 			}
@@ -431,7 +437,13 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 	restCfg.WireTokenPersistence(cmd.Context(), source, gCtx.Name, cfg.Sources)
 
-	if _, err := discovery.NewDefaultRegistry(cmd.Context(), restCfg); err != nil {
+	_, err = runWithContext(cmd.Context(), func() (*discovery.Registry, error) {
+		return discovery.NewDefaultRegistry(cmd.Context(), restCfg)
+	})
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if err != nil {
 		cmdio.Error(stdout, "Connectivity: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")
 		printSuggestions(err)
@@ -441,6 +453,9 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	cmdio.Success(stdout, "Connectivity: %s", cmdio.Green("online"))
 
 	version, raw, err := grafana.GetVersion(cmd.Context(), gCtx)
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
 	if err != nil {
 		cmdio.Error(stdout, "Grafana version: %s", cmdio.Red(summarizeError(err))+"\n")
 		return nil
@@ -463,6 +478,32 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 
 	return nil
+}
+
+// runWithContext runs fn in a goroutine and returns as soon as ctx is
+// cancelled, even if fn is still blocked. The connectivity check relies on
+// client-go discovery, whose HTTP calls run on their own internal context and
+// don't observe cancellation — without this a Ctrl+C during `config check`
+// would hang until the client-go request timeout (32s) expired. The abandoned
+// goroutine is reclaimed when the process exits.
+func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		val, err := fn()
+		done <- result{val: val, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case r := <-done:
+		return r.val, r.err
+	}
 }
 
 func useContextCmd(configOpts *Options) *cobra.Command {
