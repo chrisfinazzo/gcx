@@ -59,19 +59,14 @@ prohibition on changing it, but the amendment requires explicit sign-off.
 
 ### Route migration plan
 
-Every path gcx calls is reachable. Named routes grant **Viewer**-level reads; an
-`/fleet-management-api/*` catch-all route (requiring the **Admin** role) proxies
-everything else.
-
-| current RPC | target route | required role |
-|---|---|---|
-| `pipeline.v1` `ListPipelines` / `GetPipeline` | named | **Viewer** |
-| `collector.v1` `ListCollectors` / `GetCollector` | named | **Viewer** |
-| `pipeline.v1` `Create` / `Update` / `DeletePipeline` | `/fleet-management-api/*` | **Admin** |
-| `collector.v1` `Create` / `Update` / `DeleteCollector` | `/fleet-management-api/*` | **Admin** |
-| `tenant.v1` `GetLimits` (only `GetSummary` is named) | `/fleet-management-api/*` | **Admin** |
-| `instrumentation.v1` `Get/Set` `App`/`K8S` | `/fleet-management-api/*` | **Admin** |
-| `discovery.v1` `SetupK8sDiscovery` / `RunK8sDiscovery` / `RunK8sMonitoring` | `/fleet-management-api/*` | **Admin** |
+Every RPC gcx calls today is reachable through the proxy. Role gating is coarse
+and observable at the caller: **read** RPCs (the `List*` / `Get*` surfaces)
+require the **Viewer** role, and every **mutation** — plus `tenant.v1 GetLimits`
+and all `instrumentation.v1` / `discovery.v1` calls — requires the **Grafana
+Admin** role. Finer per-resource authorization is a future plugin-side
+enhancement (see Open Questions in the spec). We deliberately do not enumerate
+the plugin's internal route configuration here — gcx describes only its own
+calls and the role each requires.
 
 The wire format is identical (the proxy is transparent), and backend datasource
 URLs travel in the request **body**, so the instrumentation `Set*`/`Setup*`
@@ -185,9 +180,8 @@ all in scope of executing this decision, not deferred beyond it:
 - Amend the `CONSTITUTION.md` dependency rule (remove **Fleet** from the "outside
   the Grafana server" list) to match this decision.
 - Update `gcx fleet` / `gcx instrumentation` command docs to state the Grafana
-  role requirement (Viewer for reads, `Admin` for mutations via the
-  `/fleet-management-api/*` catch-all). Edit the Cobra `Short`/`Long` help and
-  regenerate the CLI reference.
+  role requirement (Viewer for reads, `Admin` for mutations). Edit the Cobra
+  `Short`/`Long` help and regenerate the CLI reference.
 - Review error mapping for proxy/RBAC responses so messages stay actionable
   (e.g. distinguishing "missing RBAC" from "FM rejected the request").
 - Update `ARCHITECTURE.md` (Instrumentation/Fleet sections + ADR index) and

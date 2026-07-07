@@ -9,7 +9,6 @@
   consulted. Reads require the Viewer role; mutations require the Grafana Admin
   role. No Cloud access-policy token is required.
 
-
 ## v0.4.4 (2026-07-10)
 
 - Add full CRUD lifecycle for datasources (create, update, delete, health, schemas)
@@ -37,7 +36,6 @@
 - Update Go dependencies
 - Fix docs links in README, CLI help text, and OAuth login docs
 - Use main branch for deploy previews; update SM CODEOWNERS
-
 
 ## v0.4.3 (2026-07-01)
 

@@ -54,8 +54,8 @@ internal/fleet.Client
         │   instrumentation backend URLs sourced via
         │   collector-app instance-metadata proxy route (Viewer) ── in request body
         ▼
-   /fleet-management-api/*  →  Fleet Management     ── any Grafana credential (OAuth)
-   (named routes = Viewer; catch-all mutations = Admin;
+   collector-app proxy  →  Fleet Management         ── any Grafana credential (OAuth)
+   (reads = Viewer, mutations = Grafana Admin;
     proxy injects FM credential + X-Prom-*/X-Scope-OrgID server-side)
 ```
 
@@ -97,9 +97,8 @@ internal/fleet.Client
   that carried only an FM/Cloud token — with no Grafana credential — will no longer
   work for fleet/instrumentation. Announce in `CHANGELOG.md` and add a doc callout
   on the affected commands.
-- Mutations now require the Grafana Admin role (via the `/fleet-management-api/*`
-  catch-all); reads require Viewer. Callers whose credential lacks the needed role
-  will be denied at the proxy.
+- Mutations now require the Grafana Admin role; reads require Viewer. Callers
+  whose credential lacks the needed role will be denied at the proxy.
 - `cloud.token` / `GRAFANA_CLOUD_TOKEN` and `AgentManagementInstanceURL`/`ID` are
   no longer consulted for these command groups.
 

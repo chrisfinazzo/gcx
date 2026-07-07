@@ -94,7 +94,7 @@ decision is recorded and accepted in ADR 001.
 | Instrumentation backend-URL source | collector-app Grafana-authenticated instance-metadata proxy route (Viewer role) | Removes the residual direct-GCOM/Cloud-token dependency, keeping instrumentation fully OAuth-capable | ADR 001 |
 | Cutover strategy | Clean cutover, no hybrid/fallback | Commands are Cloud-only and the plugin is guaranteed on all Cloud stacks, so a fallback branch would serve no real environment | ADR 001 |
 | CONSTITUTION dependency rule | Amend to remove Fleet from the "outside the Grafana server" list | The traffic now targets `cfg.Host`, where `rest.HTTPClientFor()` is the correct client — the inverse of the current rule | ADR 001 |
-| Role gating | Viewer for named read routes; Grafana Admin for the `/fleet-management-api/*` catch-all (all mutations + `GetLimits`) | Matches the plugin's route-level authorization | ADR 001 |
+| Role gating | Viewer for reads (`List*`/`Get*`); Grafana Admin for all mutations (plus `GetLimits` and the instrumentation/discovery calls) | Matches the plugin's role-level authorization | ADR 001 |
 
 ## Functional Requirements
 
@@ -172,8 +172,8 @@ decision is recorded and accepted in ADR 001.
   Admin role
   WHEN the operator runs a `gcx fleet` mutation (create/update/delete pipeline or
   collector)
-  THEN the request is proxied to the `/fleet-management-api/*` route and completes
-  successfully.
+  THEN the request is proxied through the collector-app `fleet-management-api`
+  path and completes successfully.
 
 - GIVEN an OAuth-only context with the Viewer role and no Cloud token
   WHEN the operator runs a `gcx instrumentation` read (e.g. list clusters/services
@@ -196,8 +196,8 @@ decision is recorded and accepted in ADR 001.
   `X-Scope-OrgID` header.
 
 - GIVEN a caller holding only the Viewer role
-  WHEN they attempt a fleet or instrumentation mutation routed to
-  `/fleet-management-api/*`
+  WHEN they attempt a fleet or instrumentation mutation (a create/update/delete
+  or setup call that requires the Grafana Admin role)
   THEN the command exits with an actionable error that identifies the missing
   Grafana Admin role and is distinguishable from an FM request-rejection error.
 

@@ -46,7 +46,7 @@ func (o *waitOpts) Validate() error {
 //   - Otherwise (all INSTRUMENTED, EXCLUDED, or other terminal non-error states) → exit 0.
 //
 // factory is called inside RunE — after cobra has parsed all flags — to
-// lazily construct the appsClient and PromHeaders.
+// lazily construct the appsClient.
 func makeWaitCmd(factory appClientFactory) *cobra.Command {
 	opts := &waitOpts{}
 
