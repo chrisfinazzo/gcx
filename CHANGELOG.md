@@ -1,3 +1,15 @@
+## Unreleased
+
+- **Breaking:** `gcx fleet` and `gcx instrumentation` now reach Fleet Management
+  through the `grafana-collector-app` plugin proxy using your Grafana credential
+  (OAuth included) instead of a direct Fleet Management API call. A context that
+  carried only a Fleet Management / Cloud access-policy token — with no Grafana
+  credential — no longer works for these commands; `cloud.token` /
+  `GRAFANA_CLOUD_TOKEN` and `AgentManagementInstanceURL`/`ID` are no longer
+  consulted. Reads require the Viewer role; mutations require the Grafana Admin
+  role. No Cloud access-policy token is required.
+
+
 ## v0.4.4 (2026-07-10)
 
 - Add full CRUD lifecycle for datasources (create, update, delete, health, schemas)

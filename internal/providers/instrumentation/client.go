@@ -88,27 +88,6 @@ func FleetManagementFromStack(stack cloud.StackInfo) FleetManagement {
 	}
 }
 
-// PromHeaders holds the X-Prom-* header values required by discovery/monitoring endpoints.
-type PromHeaders struct {
-	ClusterID  string
-	InstanceID string
-}
-
-// PromHeadersFromStack extracts the X-Prom-* header values from stack info.
-func PromHeadersFromStack(stack cloud.StackInfo) PromHeaders {
-	return PromHeaders{
-		ClusterID:  strconv.Itoa(stack.HMInstancePromClusterID),
-		InstanceID: strconv.Itoa(stack.HMInstancePromID),
-	}
-}
-
-func (h PromHeaders) toMap() map[string]string {
-	return map[string]string{
-		"X-Prom-Cluster-ID":  h.ClusterID,
-		"X-Prom-Instance-ID": h.InstanceID,
-	}
-}
-
 // --- Wire-format types (internal to client.go) ---
 //
 // Wire types use concrete bool fields for JSON marshaling / unmarshaling.
@@ -429,8 +408,8 @@ func (c *Client) SetK8SInstrumentation(ctx context.Context, clusterName string, 
 // SetupK8sDiscovery initializes K8s discovery datasource endpoints.
 // This call is idempotent: if a Beyla survey pipeline already exists,
 // the backend returns success without modification.
-func (c *Client) SetupK8sDiscovery(ctx context.Context, urls BackendURLs, promHeaders PromHeaders) error {
-	resp, err := c.fleet.DoRequestWithHeaders(ctx, pathSetupK8sDiscovery, setupDiscoveryRequest{BackendURLs: urls}, promHeaders.toMap())
+func (c *Client) SetupK8sDiscovery(ctx context.Context, urls BackendURLs) error {
+	resp, err := c.fleet.DoRequest(ctx, pathSetupK8sDiscovery, setupDiscoveryRequest{BackendURLs: urls})
 	if err != nil {
 		return err
 	}
@@ -449,8 +428,8 @@ func (c *Client) SetupK8sDiscovery(ctx context.Context, urls BackendURLs, promHe
 // RunK8sDiscovery executes discovery and returns all discovered workloads
 // across all clusters. Filtering by cluster, namespace, or status is performed
 // client-side by the callers.
-func (c *Client) RunK8sDiscovery(ctx context.Context, promHeaders PromHeaders) (*RunK8sDiscoveryResponse, error) {
-	resp, err := c.fleet.DoRequestWithHeaders(ctx, pathRunK8sDiscovery, struct{}{}, promHeaders.toMap())
+func (c *Client) RunK8sDiscovery(ctx context.Context) (*RunK8sDiscoveryResponse, error) {
+	resp, err := c.fleet.DoRequest(ctx, pathRunK8sDiscovery, struct{}{})
 	if err != nil {
 		return nil, err
 	}
@@ -489,8 +468,8 @@ func (c *Client) RunK8sDiscovery(ctx context.Context, promHeaders PromHeaders) (
 // RunK8sMonitoring retrieves the instrumentation monitoring state for all clusters.
 // Clusters that have been Set but are not yet reporting survey_info will be absent
 // from this response — the enumerate helper (T5) resolves them via ListPipelines.
-func (c *Client) RunK8sMonitoring(ctx context.Context, promHeaders PromHeaders) (*RunK8sMonitoringResponse, error) {
-	resp, err := c.fleet.DoRequestWithHeaders(ctx, pathRunK8sMonitoring, struct{}{}, promHeaders.toMap())
+func (c *Client) RunK8sMonitoring(ctx context.Context) (*RunK8sMonitoringResponse, error) {
+	resp, err := c.fleet.DoRequest(ctx, pathRunK8sMonitoring, struct{}{})
 	if err != nil {
 		return nil, err
 	}
@@ -573,8 +552,8 @@ func (c *Client) ListPipelines(ctx context.Context) ([]Pipeline, error) {
 // The RunK8sDiscovery response is a flat list of workloads (DiscoveryItems).
 // A namespace is considered "discovered" iff at least one workload with
 // ClusterName == cluster and Namespace == namespace exists in the response.
-func (c *Client) IsNamespaceDiscovered(ctx context.Context, promHeaders PromHeaders, cluster, namespace string) (bool, error) {
-	resp, err := c.RunK8sDiscovery(ctx, promHeaders)
+func (c *Client) IsNamespaceDiscovered(ctx context.Context, cluster, namespace string) (bool, error) {
+	resp, err := c.RunK8sDiscovery(ctx)
 	if err != nil {
 		return false, fmt.Errorf("discovery: %w", err)
 	}

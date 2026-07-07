@@ -28,5 +28,25 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	return fmt.Sprintf("fleet: HTTP %d from %s: %s", e.Status, e.Path, e.Body)
+	base := fmt.Sprintf("fleet: HTTP %d from %s: %s", e.Status, e.Path, e.Body)
+	if hint := e.roleHint(); hint != "" {
+		return base + " (" + hint + ")"
+	}
+	return base
+}
+
+// roleHint returns an actionable message for the auth/RBAC statuses the Grafana
+// collector-app plugin proxy returns before it forwards to Fleet Management,
+// distinguishing a missing-role denial from an FM request rejection. It is
+// empty for statuses that originate from Fleet Management itself (e.g. 400/404/
+// 409), whose body already carries an FM-specific diagnostic.
+func (e *HTTPError) roleHint() string {
+	switch e.Status {
+	case http.StatusUnauthorized:
+		return "the Grafana credential was rejected by the collector-app proxy; re-authenticate with `gcx login`"
+	case http.StatusForbidden:
+		return "insufficient Grafana role for this operation via the grafana-collector-app proxy: reads require Viewer, mutations require Grafana Admin"
+	default:
+		return ""
+	}
 }
