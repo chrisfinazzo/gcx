@@ -1,7 +1,8 @@
 # Route `fleet` and `instrumentation` through the `grafana-collector-app` plugin proxy
 
 **Created**: 2026-06-24
-**Status**: proposed
+**Updated**: 2026-07-07
+**Status**: accepted
 **Supersedes**: none
 
 <!-- Status lifecycle: proposed -> accepted -> deprecated | superseded -->
@@ -37,11 +38,15 @@ in gcx. Routing through the plugin puts `fleet`/`instrumentation` on the same
 Grafana-authenticated transport as every other provider.
 
 The plugin-proxy transport is also the **dominant** HTTP pattern in gcx already:
-assistant, aio11y, irm, k6, slo, and kg providers all reach
-`/api/plugins/<id>/resources/...` via `rest.HTTPClientFor(&cfg.Config)`
-(`internal/assistant/assistanthttp/` is the canonical template). The config
-plumbing exists with no new wiring: the same `providers.ConfigLoader` the fleet
-providers already instantiate exposes
+assistant, aio11y, irm, k6, slo, and kg providers all reach the plugin proxy via
+`rest.HTTPClientFor(&cfg.Config)` (`internal/assistant/assistanthttp/` is the
+canonical template). Those providers target a *backend* plugin's
+`/api/plugins/<id>/resources/...` endpoint. `grafana-collector-app` is a
+**frontend-only** app plugin (it ships no backend), so it is reached through
+Grafana's **app plugin-proxy** at `/api/plugin-proxy/grafana-collector-app/...` —
+the same `rest.HTTPClientFor()` bearer transport at `cfg.Host`, only a different
+path prefix. The config plumbing exists with no new wiring: the same
+`providers.ConfigLoader` the fleet providers already instantiate exposes
 `LoadGrafanaConfig(ctx) → config.NamespacedRESTConfig` (`Host` + `rest.Config`).
 
 This change is **CONSTITUTION-touching**. `CONSTITUTION.md`'s dependency rule
@@ -70,7 +75,10 @@ everything else.
 
 The wire format is identical (the proxy is transparent), and backend datasource
 URLs travel in the request **body**, so the instrumentation `Set*`/`Setup*`
-paths pass through unchanged.
+paths pass through unchanged. gcx keeps populating those body URLs; only their
+*source* moves — from a direct GCOM lookup to the collector-app's
+Grafana-authenticated instance-metadata proxy route (Viewer role), so no Cloud
+token is needed to build them.
 
 ### Alternatives considered
 
@@ -92,18 +100,29 @@ Route all `gcx fleet` and `gcx instrumentation` FM traffic through the
 1. **Transport.** Swap the `internal/fleet/` base client from the direct
    Basic-auth POST (to the FM endpoint) to the plugin-proxy pattern: build the
    HTTP client with `rest.HTTPClientFor(&cfg.Config)` and target
-   `cfg.Host + /api/plugins/grafana-collector-app/resources/fleet-management-api`
+   `cfg.Host + /api/plugin-proxy/grafana-collector-app/fleet-management-api`
    + the existing service/method path. Grafana auth is injected by the k8s
-   round-tripper.
+   round-tripper. (The **app plugin-proxy** path `/api/plugin-proxy/<id>/...` is
+   used — not the backend-plugin `/api/plugins/<id>/resources/...` endpoint —
+   because `grafana-collector-app` ships no backend; the resources endpoint would
+   not resolve for it.)
 2. **Config.** Resolve connection details via
    `providers.ConfigLoader.LoadGrafanaConfig(ctx)` (`NamespacedRESTConfig`)
    instead of `LoadCloudConfig(ctx)`'s `AgentManagementInstanceURL` + FM token.
    gcx no longer needs an FM-scoped access-policy token for these commands, nor
-   `AgentManagementInstanceURL`/`ID` from GCOM.
+   `AgentManagementInstanceURL`/`ID` from GCOM. `instrumentation` still needs the
+   stack's backend datasource URLs (Mimir/Loki/Tempo/Pyroscope) in its request
+   bodies, but sources them through the collector-app's Grafana-authenticated
+   instance-metadata proxy route (**Viewer** role) rather than a direct GCOM
+   call — so **no Cloud access-policy token is required for `instrumentation`
+   either**. The cutover removes the Cloud-token requirement for both command
+   groups outright; there is no residual dual-credential path.
 3. **Drop now-redundant request decoration.** The instrumentation client no
-   longer sets the `X-Prom-Cluster-ID`/`X-Prom-Instance-ID` headers itself.
-   Backend datasource URLs remain in the request body (still gcx's
-   responsibility).
+   longer sets the `X-Prom-Cluster-ID`/`X-Prom-Instance-ID` (or `X-Scope-OrgID`)
+   headers itself — the plugin proxy injects the cluster/instance and org-scope
+   headers server-side, so client-side decoration is redundant. Backend
+   datasource URLs remain in the request body (still gcx's responsibility, now
+   sourced via the proxy per item 2).
 4. **Clean cutover, no hybrid.** No fallback to direct FM access (see
    Alternatives).
 5. **Amend the CONSTITUTION.** Update the dependency rule in `CONSTITUTION.md`
@@ -122,7 +141,10 @@ FM-scoped token requirement.
 - **Enables OAuth support.** Direct FM access needs a Cloud access-policy token,
   so interactive OAuth users cannot drive `fleet`/`instrumentation` today.
   Because the proxy authenticates the caller to Grafana rather than to FM, any
-  Grafana credential — OAuth included — now works.
+  Grafana credential — OAuth included — now works. This holds for **both**
+  command groups: routing `instrumentation`'s backend-URL lookup through the
+  plugin proxy as well means neither `fleet` nor `instrumentation` keeps any
+  Cloud-token dependency.
 - **Consistency with the other providers.** `fleet`/`instrumentation` join the
   plugin-proxy transport family (assistant, aio11y, irm, k6, slo, kg) instead of
   being a Basic-auth special case. Behaviour converges too: errors, status
@@ -151,15 +173,48 @@ all in scope of executing this decision, not deferred beyond it:
 
 - Implement the transport + config swap in `internal/fleet/` (base client) and
   adjust the `internal/providers/fleet/` and `internal/providers/instrumentation/`
-  call sites; the per-method typed surfaces are unchanged.
-- Amend the `CONSTITUTION.md` dependency rule and set this ADR's status to
-  `accepted` on sign-off.
+  call sites; the per-method typed surfaces are unchanged. Target the app
+  plugin-proxy path (`/api/plugin-proxy/grafana-collector-app/fleet-management-api`).
+- Widen the `internal/fleet` `ConfigLoader` interface (today it declares
+  `LoadCloudConfig` only) to expose `LoadGrafanaConfig`, and rethread the
+  instrumentation commands typed against it.
+- Add an instance-metadata fetch for `instrumentation`'s backend datasource URLs
+  through the collector-app's Grafana-authenticated proxy route, reusing the
+  existing `StackInfo` field mapping to build request bodies. Verify the proxied
+  instance response carries the same fields `BackendURLsFromStack` consumes.
+- Amend the `CONSTITUTION.md` dependency rule (remove **Fleet** from the "outside
+  the Grafana server" list) to match this decision.
 - Update `gcx fleet` / `gcx instrumentation` command docs to state the Grafana
-  `Admin` role requirement for service-account tokens.
+  role requirement (Viewer for reads, `Admin` for mutations via the
+  `/fleet-management-api/*` catch-all). Edit the Cobra `Short`/`Long` help and
+  regenerate the CLI reference.
 - Review error mapping for proxy/RBAC responses so messages stay actionable
   (e.g. distinguishing "missing RBAC" from "FM rejected the request").
 - Update `ARCHITECTURE.md` (Instrumentation/Fleet sections + ADR index) and
   `internal/fleet` package docs to reflect the proxy transport.
 - Reconcile tests in `internal/fleet`, `internal/providers/fleet`, and
-  `internal/providers/instrumentation` (auth assertions move from Basic-auth to
-  plugin-proxy path/URL expectations).
+  `internal/providers/instrumentation` (drop the `useBasicAuth`/instance-ID/token
+  constructor args; auth assertions move from Basic-auth to plugin-proxy
+  path/URL expectations).
+- Respect the closed-source boundary: gcx is public, the collector-app plugin is
+  not — public docs describe gcx's proxy calls without documenting plugin
+  internals.
+
+### Validation (2026-07-07)
+
+Verified against the current `gcx` code and the `grafana-collector-app` plugin
+before spec-out; two corrections were folded into this ADR:
+
+- **Proxy path.** Transport targets the app plugin-proxy
+  (`/api/plugin-proxy/grafana-collector-app/...`), not the backend-plugin
+  resources endpoint (`/api/plugins/<id>/resources/...`) — the collector-app has
+  no backend, so the resources path would not resolve.
+- **`instrumentation` is fully OAuth-capable, no dual-config.** Its backend
+  datasource URLs are sourced through the collector-app's Grafana-authenticated
+  instance-metadata proxy route (Viewer role), so `instrumentation` keeps no
+  Cloud-token dependency — matching `fleet`. The earlier assumption that gcx
+  must reach GCOM directly (which would have left a residual token requirement)
+  does not hold once that lookup is routed through the same proxy.
+
+The `X-Prom-*`/`X-Scope-OrgID` header and FM-credential injection all occur
+server-side in the proxy, confirming the client-side decoration is safe to drop.
