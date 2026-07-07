@@ -105,6 +105,7 @@ internal/
 │   └── remote/     Pusher, Puller, Deleter, FolderHierarchy, Summary
 ├── providers/   Provider plugin system (interface, registry, self-registration)
 │   ├── alert/      Alert provider (rules, groups — read-only)
+│   ├── annotations/ Annotations provider (CRUD + tags + mass-delete via /api/annotations; coreapi client, resources-pipeline bridge)
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
 │   ├── datasources/ Datasources provider — bridges /api/datasources into the resources pipeline via ResourceAdapter (no commands; managed via `gcx resources`)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`

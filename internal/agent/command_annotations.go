@@ -205,6 +205,17 @@ var commandAnnotations = map[string]annotation{
 	"gcx alert templates delete":             {Cost: "small"},
 
 	// -----------------------------------------------------------------------
+	// Annotations provider
+	// -----------------------------------------------------------------------
+	"gcx annotations list":        {Cost: "medium", Hint: "--lookback 24h --tags deploy --limit 20 -o json"},
+	"gcx annotations get":         {Cost: "small", Hint: "<id> -o json"},
+	"gcx annotations create":      {Cost: "small", Hint: "-f annotation.json"},
+	"gcx annotations update":      {Cost: "small", Hint: "<id> -f patch.json"},
+	"gcx annotations delete":      {Cost: "small"},
+	"gcx annotations tags":        {Cost: "small", Hint: "-o json"},
+	"gcx annotations mass-delete": {Cost: "small", Hint: "--dashboard-uid <uid> --panel-id <n>"},
+
+	// -----------------------------------------------------------------------
 	// App Observability provider
 	// -----------------------------------------------------------------------
 	"gcx appo11y overrides get":    {Cost: "small"},
