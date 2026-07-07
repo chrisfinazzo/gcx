@@ -11,6 +11,7 @@ import (
 
 	"github.com/grafana/gcx/internal/config"
 	"github.com/grafana/gcx/internal/providers"
+	"github.com/grafana/gcx/internal/resources/adapter"
 	"k8s.io/client-go/rest"
 )
 
@@ -41,8 +42,23 @@ func NewClient(cfg config.NamespacedRESTConfig) (*Client, error) {
 	}, nil
 }
 
-// List returns all SLO definitions.
-func (c *Client) List(ctx context.Context) ([]Slo, error) {
+// newClientFromDeps builds the SLO definitions client used by the
+// declarative adapter.Resource[Slo] registration (see resource_adapter.go).
+// Unlike NewClient, it reuses the pre-built ClientDeps.HTTP directly and
+// constructs no transport of its own (see docs/architecture/patterns.md §
+// Provider ConfigLoader; NC-007, AC-010).
+func newClientFromDeps(deps adapter.ClientDeps) *Client {
+	return &Client{
+		restConfig: config.NamespacedRESTConfig{
+			Config: rest.Config{Host: deps.BaseURL},
+		},
+		httpClient: deps.HTTP,
+	}
+}
+
+// List returns all SLO definitions, truncated to opts.Limit when positive
+// (implements adapter.Lister[Slo]).
+func (c *Client) List(ctx context.Context, opts adapter.ListOptions) ([]Slo, error) {
 	resp, err := c.doRequest(ctx, http.MethodGet, basePath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list SLOs: %w", err)
@@ -58,11 +74,12 @@ func (c *Client) List(ctx context.Context) ([]Slo, error) {
 		return nil, fmt.Errorf("failed to decode SLO list response: %w", err)
 	}
 
-	if listResp.SLOs == nil {
-		return []Slo{}, nil
+	slos := listResp.SLOs
+	if slos == nil {
+		slos = []Slo{}
 	}
 
-	return listResp.SLOs, nil
+	return adapter.TruncateSlice(slos, opts.Limit), nil
 }
 
 // Get returns a single SLO definition by UUID.
@@ -89,8 +106,26 @@ func (c *Client) Get(ctx context.Context, uuid string) (*Slo, error) {
 	return &slo, nil
 }
 
-// Create creates a new SLO definition.
-func (c *Client) Create(ctx context.Context, slo *Slo) (*SLOCreateResponse, error) {
+// Create creates a new SLO definition and returns the fully populated
+// resource (implements adapter.Creator[Slo]). The create endpoint responds
+// with only a UUID, so Create re-fetches the created SLO before returning —
+// moved verbatim from the registration-side closure this method replaces
+// (FR-020).
+func (c *Client) Create(ctx context.Context, slo *Slo) (*Slo, error) {
+	resp, err := c.createRequest(ctx, slo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SLO: %w", err)
+	}
+	created, err := c.Get(ctx, resp.UUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch created SLO %q: %w", resp.UUID, err)
+	}
+	return created, nil
+}
+
+// createRequest issues the raw create HTTP request, returning the server's
+// create response (UUID + message only, not the full SLO).
+func (c *Client) createRequest(ctx context.Context, slo *Slo) (*SLOCreateResponse, error) {
 	body, err := json.Marshal(slo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal SLO: %w", err)
@@ -114,8 +149,23 @@ func (c *Client) Create(ctx context.Context, slo *Slo) (*SLOCreateResponse, erro
 	return &createResp, nil
 }
 
-// Update updates an existing SLO definition.
-func (c *Client) Update(ctx context.Context, uuid string, slo *Slo) error {
+// Update updates an existing SLO definition and returns the fully populated
+// resource, re-fetching it after the update (implements
+// adapter.Updater[Slo]) — moved verbatim from the registration-side closure
+// this method replaces (FR-020).
+func (c *Client) Update(ctx context.Context, name string, slo *Slo) (*Slo, error) {
+	if err := c.updateRequest(ctx, name, slo); err != nil {
+		return nil, fmt.Errorf("failed to update SLO %q: %w", name, err)
+	}
+	updated, err := c.Get(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch updated SLO %q: %w", name, err)
+	}
+	return updated, nil
+}
+
+// updateRequest issues the raw update HTTP request.
+func (c *Client) updateRequest(ctx context.Context, uuid string, slo *Slo) error {
 	body, err := json.Marshal(slo)
 	if err != nil {
 		return fmt.Errorf("failed to marshal SLO: %w", err)
