@@ -93,6 +93,7 @@ internal/
 ├── config/      Config types, loader, editor, rest.Config builder, stack-id discovery, context name helpers (auto-migrates plaintext token-shaped secrets into the OS keychain via internal/credentials)
 ├── credentials/ OS-keychain backend (zalando/go-keyring) for token-shaped secrets; sentinel format + Store interface; auto-disabled under `go test`
 ├── cloud/       GCOM HTTP client for Grafana Cloud stack discovery
+├── coreapi/     Shared HTTP client + generic DoJSON/DoStatus helpers for core Grafana `/api/*` REST providers (annotations, org, permissions, publicdashboards)
 ├── fleet/       Shared fleet base client (HTTP, auth, config — used by fleet provider and instrumentation provider)
 ├── resources/
 │   ├── *.go     Core types: Resource, Selector, Filter, Descriptor, Resources collection
@@ -104,6 +105,7 @@ internal/
 │   └── remote/     Pusher, Puller, Deleter, FolderHierarchy, Summary
 ├── providers/   Provider plugin system (interface, registry, self-registration)
 │   ├── alert/      Alert provider (rules, groups — read-only)
+│   ├── annotations/ Annotations provider (CRUD + tags + mass-delete via /api/annotations; coreapi client, resources-pipeline bridge)
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
 │   ├── datasources/ Datasources provider — bridges /api/datasources into the resources pipeline via ResourceAdapter (no commands; managed via `gcx resources`)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`
@@ -119,7 +121,10 @@ internal/
 │   ├── logs/       Logs signal provider (Loki queries + Adaptive Logs commands)
 │   ├── metrics/    Metrics signal provider (Prometheus queries + Adaptive Metrics commands)
 │   ├── appo11y/    App Observability provider (overrides, settings — singleton resources; services discovery via target_info)
+│   ├── org/        Organization provider (org users — list/get/add/update-role/remove via /api/org/users; coreapi client)
+│   ├── permissions/ Permissions provider (granular RBAC via /api/access-control/{resource}/{id} — get/set/grant/levels over folders|dashboards|datasources|teams|serviceaccounts; command-only)
 │   ├── profiles/   Profiles signal provider (Pyroscope queries + adaptive stub)
+│   ├── publicdashboards/ Public Dashboards provider (CRUD via /api/dashboards/uid/{uid}/public-dashboards; coreapi client, resources-pipeline bridge)
 │   ├── aio11y/     AI Observability provider (conversations, agents, generations, evaluators, rules, hook-rules (guards), templates, scores, judge, saved-conversations, collections, experiments — via grafana-sigil-app plugin API)
 │   ├── slo/        SLO provider (definitions, reports)
 │   ├── synth/      Synthetic Monitoring provider (checks, probes)
