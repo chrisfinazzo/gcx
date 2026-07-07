@@ -1,7 +1,7 @@
 ---
 type: feature-spec
 title: "Route `fleet` and `instrumentation` through the collector-app plugin proxy"
-status: approved
+status: done
 created: 2026-07-07
 ---
 
