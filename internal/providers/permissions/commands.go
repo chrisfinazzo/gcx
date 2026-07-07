@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/grafana/gcx/internal/config"
+	"github.com/grafana/gcx/internal/coreapi"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/style"
@@ -255,20 +255,9 @@ func readPermissionsFromFile(path string, stdin io.Reader) ([]SetResourcePermiss
 	if path == "" {
 		return nil, errors.New("--file is required")
 	}
-	var (
-		data []byte
-		err  error
-	)
-	if path == "-" {
-		if stdin == nil {
-			stdin = os.Stdin
-		}
-		data, err = io.ReadAll(stdin)
-	} else {
-		data, err = os.ReadFile(path)
-	}
+	data, err := coreapi.ReadInput(path, stdin)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read permissions file: %w", err)
+		return nil, err
 	}
 	return parsePermissions(data)
 }

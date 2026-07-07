@@ -15,12 +15,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"slices"
-	"time"
 
 	"github.com/grafana/gcx/internal/config"
-	"github.com/grafana/gcx/internal/providers"
-	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 )
 
@@ -37,15 +35,6 @@ func NewClient(cfg config.NamespacedRESTConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 	return &Client{restConfig: cfg, httpClient: httpClient}, nil
-}
-
-// NewClientFromCommand creates a Client from a cobra command and config loader.
-func NewClientFromCommand(cmd *cobra.Command, loader *providers.ConfigLoader) (*Client, error) {
-	cfg, err := loader.LoadGrafanaConfig(cmd.Context())
-	if err != nil {
-		return nil, err
-	}
-	return NewClient(cfg)
 }
 
 // DoRequest builds and executes an HTTP request against the core API. The path
@@ -181,23 +170,23 @@ func HandleErrorResponse(resp *http.Response) error {
 	return fmt.Errorf("request failed with status %d", resp.StatusCode)
 }
 
-// FormatTime formats a time for table display, returning "-" for zero values.
-func FormatTime(t time.Time) string {
-	if t.IsZero() {
-		return "-"
+// ReadInput reads a JSON (or other) spec from path, or from stdin when path is
+// "-". It is the shared file-or-stdin reader for provider `-f/--file` flags. A
+// nil stdin falls back to os.Stdin.
+func ReadInput(path string, stdin io.Reader) ([]byte, error) {
+	if path == "-" {
+		if stdin == nil {
+			stdin = os.Stdin
+		}
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return nil, fmt.Errorf("reading stdin: %w", err)
+		}
+		return data, nil
 	}
-	return t.Format("2006-01-02 15:04")
-}
-
-// Truncate returns s shortened to maxLen runes, adding "..." if truncated.
-// Returns "-" for empty strings.
-func Truncate(s string, maxLen int) string {
-	if s == "" {
-		return "-"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
-	r := []rune(s)
-	if len(r) > maxLen {
-		return string(r[:maxLen-3]) + "..."
-	}
-	return s
+	return data, nil
 }

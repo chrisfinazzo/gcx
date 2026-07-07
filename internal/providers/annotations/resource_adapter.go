@@ -72,42 +72,17 @@ type RESTConfigLoader interface {
 
 // NewAdapterFactory returns a lazy adapter.Factory for Annotation resources.
 // The factory captures the RESTConfigLoader and constructs the client on first
-// invocation.
+// invocation. It uses the default (unfiltered) List semantics — CLI commands
+// that need --from/--to/--tags plumbing build their own TypedCRUD with a scoped
+// ListFn closure.
 func NewAdapterFactory(loader RESTConfigLoader) adapter.Factory {
 	return func(ctx context.Context) (adapter.ResourceAdapter, error) {
-		cfg, err := loader.LoadGrafanaConfig(ctx)
+		crud, _, err := NewTypedCRUD(ctx, loader, ListOptions{})
 		if err != nil {
-			return nil, fmt.Errorf("failed to load REST config for annotations adapter: %w", err)
+			return nil, err
 		}
-
-		client, err := NewClient(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create annotations client: %w", err)
-		}
-
-		return newTypedAdapter(client, cfg.Namespace), nil
+		return crud.AsAdapter(), nil
 	}
-}
-
-// NewFactoryFromConfig returns an adapter.Factory for Annotation resources that
-// creates a Client using the provided NamespacedRESTConfig.
-func NewFactoryFromConfig(cfg internalconfig.NamespacedRESTConfig) adapter.Factory {
-	return func(_ context.Context) (adapter.ResourceAdapter, error) {
-		client, err := NewClient(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create annotations client: %w", err)
-		}
-		return newTypedAdapter(client, cfg.Namespace), nil
-	}
-}
-
-// newTypedAdapter builds the TypedCRUD[Annotation] adapter for the given
-// client and namespace. It uses the default (unfiltered) List semantics — CLI
-// commands that need --from/--to/--tags plumbing build their own TypedCRUD
-// with a scoped ListFn closure.
-func newTypedAdapter(client *Client, namespace string) adapter.ResourceAdapter {
-	crud := buildTypedCRUD(client, namespace, ListOptions{})
-	return crud.AsAdapter()
 }
 
 // buildTypedCRUD assembles a TypedCRUD[Annotation] around the given client,

@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/grafana/gcx/internal/config"
 	"github.com/grafana/gcx/internal/coreapi"
@@ -124,9 +126,23 @@ func TestDoStatus_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "boom")
 }
 
-func TestFormatTimeAndTruncate(t *testing.T) {
-	assert.Equal(t, "-", coreapi.FormatTime(time.Time{}))
-	assert.Equal(t, "-", coreapi.Truncate("", 10))
-	assert.Equal(t, "abc", coreapi.Truncate("abc", 10))
-	assert.Equal(t, "abcde...", coreapi.Truncate("abcdefghij", 8))
+func TestReadInput(t *testing.T) {
+	t.Run("reads from stdin when path is -", func(t *testing.T) {
+		got, err := coreapi.ReadInput("-", strings.NewReader(`{"a":1}`))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"a":1}`, string(got))
+	})
+
+	t.Run("reads from file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "spec.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"b":2}`), 0o600))
+		got, err := coreapi.ReadInput(path, nil)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"b":2}`, string(got))
+	})
+
+	t.Run("errors on missing file", func(t *testing.T) {
+		_, err := coreapi.ReadInput(filepath.Join(t.TempDir(), "nope.json"), nil)
+		require.Error(t, err)
+	})
 }

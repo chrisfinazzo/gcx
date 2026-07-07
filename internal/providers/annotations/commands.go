@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/grafana/gcx/internal/coreapi"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/resources/adapter"
@@ -487,7 +487,7 @@ func validateID(s string) error {
 // readAnnotationFromFile reads the given path (or stdin for "-") and parses it
 // as a JSON Annotation spec.
 func readAnnotationFromFile(stdin io.Reader, path string) (*Annotation, error) {
-	data, err := readFileOrStdin(stdin, path)
+	data, err := coreapi.ReadInput(path, stdin)
 	if err != nil {
 		return nil, err
 	}
@@ -496,20 +496,4 @@ func readAnnotationFromFile(stdin io.Reader, path string) (*Annotation, error) {
 		return nil, fmt.Errorf("failed to parse annotation: %w", err)
 	}
 	return &a, nil
-}
-
-// readFileOrStdin reads the given path, or stdin when path is "-".
-func readFileOrStdin(stdin io.Reader, path string) ([]byte, error) {
-	if path == "-" {
-		data, err := io.ReadAll(stdin)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read stdin: %w", err)
-		}
-		return data, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %w", path, err)
-	}
-	return data, nil
 }
