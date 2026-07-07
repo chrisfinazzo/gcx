@@ -987,7 +987,7 @@ func convertCloudConfigErrors(err error) (*gcxerrors.DetailedError, bool) {
 	if strings.Contains(msg, "fleet:") && strings.Contains(msg, "status 401") {
 		return &gcxerrors.DetailedError{
 			Parent:  err,
-			Summary: "Fleet Management: authentication failed",
+			Summary: "Authentication failed",
 			Details: msg,
 			Suggestions: []string{
 				"Re-authenticate with your Grafana credential: gcx login",
@@ -1003,7 +1003,7 @@ func convertCloudConfigErrors(err error) (*gcxerrors.DetailedError, bool) {
 		(strings.Contains(msg, "list ") || strings.Contains(msg, "get ")) {
 		return &gcxerrors.DetailedError{
 			Parent:  err,
-			Summary: "Fleet Management: insufficient Grafana role",
+			Summary: "Authorization failed",
 			Details: msg,
 			Suggestions: []string{
 				"Fleet reads require the Viewer role on this Grafana instance (via the grafana-collector-app proxy)",
@@ -1020,7 +1020,7 @@ func convertCloudConfigErrors(err error) (*gcxerrors.DetailedError, bool) {
 		(strings.Contains(msg, "create ") || strings.Contains(msg, "update ") || strings.Contains(msg, "delete ")) {
 		return &gcxerrors.DetailedError{
 			Parent:  err,
-			Summary: "Fleet Management: insufficient Grafana role",
+			Summary: "Authorization failed",
 			Details: msg,
 			Suggestions: []string{
 				"Fleet mutations require the Grafana Admin role (via the grafana-collector-app proxy)",
@@ -1119,8 +1119,8 @@ func convertFleetHTTPErrors(err error) (*gcxerrors.DetailedError, bool) {
 	case http.StatusForbidden:
 		return &gcxerrors.DetailedError{
 			Parent:  err,
-			Summary: "Insufficient Grafana role",
-			Details: "HTTP 403 from " + httpErr.Path + " — denied by the grafana-collector-app proxy",
+			Summary: "Authorization failed",
+			Details: "HTTP 403 from " + httpErr.Path + " — denied by the grafana-collector-app proxy (insufficient Grafana role)",
 			Suggestions: []string{
 				"Fleet and instrumentation reads require the Viewer role; mutations require the Grafana Admin role",
 				"Ask a Grafana admin to grant your account the required role, then retry",

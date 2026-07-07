@@ -436,37 +436,37 @@ func TestErrorToDetailedError_FleetRoleError(t *testing.T) {
 		{
 			name:        "fleet 401 suggests re-authentication",
 			err:         errors.New(`fleet: list pipelines: status 401: {"message":"unauthorized"}`),
-			wantSummary: "Fleet Management: authentication failed",
+			wantSummary: "Authentication failed",
 			wantContain: "gcx login",
 		},
 		{
 			name:        "fleet 403 list read suggests Viewer role",
 			err:         errors.New(`fleet: list pipelines: status 403: {"message":"forbidden"}`),
-			wantSummary: "Fleet Management: insufficient Grafana role",
+			wantSummary: "Authorization failed",
 			wantContain: "Viewer role",
 		},
 		{
 			name:        "fleet 403 get read suggests Viewer role",
 			err:         errors.New(`fleet: get pipeline abc123: status 403: {"message":"forbidden"}`),
-			wantSummary: "Fleet Management: insufficient Grafana role",
+			wantSummary: "Authorization failed",
 			wantContain: "Viewer role",
 		},
 		{
 			name:        "fleet 403 create mutation suggests Admin role",
 			err:         errors.New(`fleet: create pipeline: status 403: {"message":"forbidden"}`),
-			wantSummary: "Fleet Management: insufficient Grafana role",
+			wantSummary: "Authorization failed",
 			wantContain: "Admin role",
 		},
 		{
 			name:        "fleet 403 update mutation suggests Admin role",
 			err:         errors.New(`fleet: update collector abc123: status 403: {"message":"forbidden"}`),
-			wantSummary: "Fleet Management: insufficient Grafana role",
+			wantSummary: "Authorization failed",
 			wantContain: "Admin role",
 		},
 		{
 			name:        "fleet 403 delete mutation suggests Admin role",
 			err:         errors.New(`fleet: delete pipeline abc123: status 403: {"message":"forbidden"}`),
-			wantSummary: "Fleet Management: insufficient Grafana role",
+			wantSummary: "Authorization failed",
 			wantContain: "Admin role",
 		},
 	}
@@ -815,7 +815,7 @@ func TestConvertFleetHTTPErrors(t *testing.T) {
 		{
 			name:         "403 from fleet management",
 			err:          fmt.Errorf("clusters list: %w", &fleet.HTTPError{Status: 403, Path: "/instrumentation.v1.InstrumentationService/GetK8SInstrumentation"}),
-			wantSummary:  "Insufficient Grafana role",
+			wantSummary:  "Authorization failed",
 			wantAuthExit: true,
 		},
 		{
