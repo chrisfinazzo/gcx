@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 
+	"github.com/grafana/gcx/internal/coreapi"
 	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/resources/adapter"
@@ -20,30 +20,26 @@ import (
 // It is an alias for RESTConfigLoader to keep existing test names stable.
 type GrafanaConfigLoader = RESTConfigLoader
 
-func boolLabel(v bool) string {
-	if v {
+// boolLabel renders a nullable toggle: "yes"/"no" when set, "-" when unset
+// (the server always returns concrete values, so "-" only appears for a spec
+// that omitted the field).
+func boolLabel(v *bool) string {
+	switch {
+	case v == nil:
+		return "-"
+	case *v:
 		return "yes"
+	default:
+		return "no"
 	}
-	return "no"
 }
 
 // readPublicDashboardSpec reads a JSON public dashboard spec from path, or from
 // stdin when path is "-".
 func readPublicDashboardSpec(path string, stdin io.Reader) (*PublicDashboard, error) {
-	var (
-		data []byte
-		err  error
-	)
-	if path == "-" {
-		data, err = io.ReadAll(stdin)
-		if err != nil {
-			return nil, fmt.Errorf("reading stdin: %w", err)
-		}
-	} else {
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", path, err)
-		}
+	data, err := coreapi.ReadInput(path, stdin)
+	if err != nil {
+		return nil, err
 	}
 
 	var pd PublicDashboard

@@ -49,7 +49,7 @@ func TestClient_List(t *testing.T) {
 				assert.Equal(t, "/api/dashboards/public-dashboards", r.URL.Path)
 				writeJSON(w, map[string]any{
 					"publicDashboards": []publicdashboards.PublicDashboard{
-						{UID: "pd-1", DashboardUID: "d-1", IsEnabled: true},
+						{UID: "pd-1", DashboardUID: "d-1", IsEnabled: new(true)},
 						{UID: "pd-2", DashboardUID: "d-2"},
 					},
 				})
@@ -109,7 +109,7 @@ func TestClient_Get(t *testing.T) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				// r.URL.Path is the decoded form; the raw wire path comes through RequestURI.
 				assert.Equal(t, "/api/dashboards/uid/abc%20123/public-dashboards", r.RequestURI)
-				writeJSON(w, publicdashboards.PublicDashboard{UID: "pd-1", DashboardUID: "abc 123", IsEnabled: true})
+				writeJSON(w, publicdashboards.PublicDashboard{UID: "pd-1", DashboardUID: "abc 123", IsEnabled: new(true)})
 			},
 		},
 		{
@@ -151,14 +151,16 @@ func TestClient_Create(t *testing.T) {
 		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
 			return
 		}
-		assert.True(t, body.IsEnabled)
+		if assert.NotNil(t, body.IsEnabled) {
+			assert.True(t, *body.IsEnabled)
+		}
 		assert.Equal(t, "public", body.Share)
 
 		writeJSON(w, publicdashboards.PublicDashboard{
 			UID:          "pd-new",
 			DashboardUID: "dash-1",
 			AccessToken:  "token-xyz",
-			IsEnabled:    true,
+			IsEnabled:    new(true),
 			Share:        "public",
 		})
 	}))
@@ -166,7 +168,7 @@ func TestClient_Create(t *testing.T) {
 
 	client := newTestClient(t, server)
 	created, err := client.Create(t.Context(), "dash-1", &publicdashboards.PublicDashboard{
-		IsEnabled: true,
+		IsEnabled: new(true),
 		Share:     "public",
 	})
 	require.NoError(t, err)
@@ -184,24 +186,27 @@ func TestClient_Update(t *testing.T) {
 		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
 			return
 		}
-		assert.True(t, body.AnnotationsEnabled)
+		if assert.NotNil(t, body.AnnotationsEnabled) {
+			assert.True(t, *body.AnnotationsEnabled)
+		}
 
 		writeJSON(w, publicdashboards.PublicDashboard{
 			UID:                "pd-1",
 			DashboardUID:       "dash-1",
-			AnnotationsEnabled: true,
+			AnnotationsEnabled: new(true),
 		})
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
 	updated, err := client.Update(t.Context(), "dash-1", "pd-1", &publicdashboards.PublicDashboard{
-		AnnotationsEnabled: true,
+		AnnotationsEnabled: new(true),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, "pd-1", updated.UID)
-	assert.True(t, updated.AnnotationsEnabled)
+	require.NotNil(t, updated.AnnotationsEnabled)
+	assert.True(t, *updated.AnnotationsEnabled)
 }
 
 func TestClient_Delete(t *testing.T) {

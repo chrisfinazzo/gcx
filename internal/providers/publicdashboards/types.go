@@ -9,12 +9,17 @@ package publicdashboards
 //
 //nolint:recvcheck // Mixed receivers are intentional for Go generics TypedCRUD compatibility.
 type PublicDashboard struct {
-	UID                  string `json:"uid,omitempty"`
-	DashboardUID         string `json:"dashboardUid,omitempty"`
-	AccessToken          string `json:"accessToken,omitempty"`
-	IsEnabled            bool   `json:"isEnabled"`
-	AnnotationsEnabled   bool   `json:"annotationsEnabled"`
-	TimeSelectionEnabled bool   `json:"timeSelectionEnabled"`
+	UID          string `json:"uid,omitempty"`
+	DashboardUID string `json:"dashboardUid,omitempty"`
+	AccessToken  string `json:"accessToken,omitempty"`
+	// The three toggles are pointers with omitempty so a partial update (e.g.
+	// `-f patch.json` containing only some fields) omits the unset ones from the
+	// PATCH body instead of sending them as false — which would otherwise
+	// silently disable the dashboard and its toggles server-side. A nil pointer
+	// means "leave unchanged"; a non-nil pointer sends the explicit value.
+	IsEnabled            *bool  `json:"isEnabled,omitempty"`
+	AnnotationsEnabled   *bool  `json:"annotationsEnabled,omitempty"`
+	TimeSelectionEnabled *bool  `json:"timeSelectionEnabled,omitempty"`
 	Share                string `json:"share,omitempty"`
 }
 

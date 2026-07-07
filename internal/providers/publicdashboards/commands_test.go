@@ -3,6 +3,7 @@ package publicdashboards_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,8 +30,10 @@ func TestReadPublicDashboardSpec_FromFile(t *testing.T) {
 	pd, err := publicdashboards.ReadPublicDashboardSpecForTest(path, nil)
 	require.NoError(t, err)
 	require.NotNil(t, pd)
-	assert.True(t, pd.IsEnabled)
-	assert.True(t, pd.AnnotationsEnabled)
+	require.NotNil(t, pd.IsEnabled)
+	assert.True(t, *pd.IsEnabled)
+	require.NotNil(t, pd.AnnotationsEnabled)
+	assert.True(t, *pd.AnnotationsEnabled)
 	assert.Equal(t, "public", pd.Share)
 }
 
@@ -39,8 +42,28 @@ func TestReadPublicDashboardSpec_FromStdin(t *testing.T) {
 	pd, err := publicdashboards.ReadPublicDashboardSpecForTest("-", bytes.NewReader(payload))
 	require.NoError(t, err)
 	require.NotNil(t, pd)
-	assert.False(t, pd.IsEnabled)
+	require.NotNil(t, pd.IsEnabled)
+	assert.False(t, *pd.IsEnabled)
 	assert.Equal(t, "public_with_email", pd.Share)
+}
+
+// TestReadPublicDashboardSpec_PartialOmitsToggles proves the PATCH bug fix: a
+// partial spec that omits the toggle fields yields nil pointers (not false), so
+// marshaling the spec into a PATCH body omits them and the server preserves the
+// existing values instead of silently disabling the dashboard.
+func TestReadPublicDashboardSpec_PartialOmitsToggles(t *testing.T) {
+	pd, err := publicdashboards.ReadPublicDashboardSpecForTest("-", bytes.NewReader([]byte(`{"share":"public"}`)))
+	require.NoError(t, err)
+	require.NotNil(t, pd)
+	assert.Nil(t, pd.IsEnabled, "omitted isEnabled must stay nil, not default to false")
+	assert.Nil(t, pd.AnnotationsEnabled)
+	assert.Nil(t, pd.TimeSelectionEnabled)
+
+	body, err := json.Marshal(pd)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "isEnabled")
+	assert.NotContains(t, string(body), "annotationsEnabled")
+	assert.NotContains(t, string(body), "timeSelectionEnabled")
 }
 
 func TestReadPublicDashboardSpec_BadJSON(t *testing.T) {

@@ -18,7 +18,9 @@ type Annotation struct {
 	Time         int64    `json:"time,omitempty"`
 	TimeEnd      int64    `json:"timeEnd,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
-	Text         string   `json:"text"`
+	// Text has omitempty so a partial update omits it rather than sending an
+	// empty string that would clear the annotation text server-side.
+	Text string `json:"text,omitempty"`
 }
 
 // GetResourceName returns the numeric annotation ID as a string.
