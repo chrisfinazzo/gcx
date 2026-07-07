@@ -443,7 +443,7 @@ implementation, including the create-then-refetch `Creator`/`Updater`
 behavior that used to live in the registration closure).
 
 **Providers with several heterogeneous types sharing one client** (e.g.
-OnCall's 17 types) can instead use the lower-level
+OnCall's 16 types) can instead use the lower-level
 `adapter.BuildRegistration[T, C]` + `CRUDOption[T, C]` builder — see Pattern
 18 in `patterns.md`. Either way, never hand-build an `adapter.Registration{}`
 literal or thread `Schema`/`GVK`/`Example` by hand.
