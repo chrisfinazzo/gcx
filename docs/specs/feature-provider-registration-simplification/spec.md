@@ -1,7 +1,7 @@
 ---
 type: feature-spec
 title: "Provider Registration Simplification — Declarative adapter.Resource[T] Front Door"
-status: approved
+status: done
 research: docs/designs/provider-registration-simplification.md
 created: 2026-07-07
 ---
