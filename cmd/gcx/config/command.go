@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -23,6 +25,7 @@ import (
 	"github.com/grafana/gcx/internal/terminal"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {
@@ -368,10 +371,37 @@ func checkCmd(configOpts *Options) *cobra.Command {
 
 			cmd.Println()
 
+			// Check contexts concurrently, each into its own buffer. Goroutines
+			// return nil and stash real errors per-index so one failing context
+			// never cancels the others (matches the prior serial semantics).
+			// Names are sorted and buffers flushed in that order, so output is
+			// deterministic (the prior serial loop ranged a map, so ordering was
+			// previously non-deterministic).
+			names := make([]string, 0, len(cfg.Contexts))
+			for name := range cfg.Contexts {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+
+			bufs := make([]bytes.Buffer, len(names))
+			errs := make([]error, len(names))
+			source := configOpts.ConfigSource()
+
+			g, gctx := errgroup.WithContext(cmd.Context())
+			g.SetLimit(10)
+			for i, name := range names {
+				g.Go(func() error {
+					errs[i] = checkContext(gctx, &bufs[i], cfg, cfg.Contexts[name], source)
+					return nil
+				})
+			}
+			_ = g.Wait()
+
 			var checkErr error
-			for _, gCtx := range cfg.Contexts {
-				if err := checkContext(cmd, cfg, gCtx, configOpts.ConfigSource()); err != nil {
-					checkErr = err
+			for i := range names {
+				_, _ = io.Copy(stdout, &bufs[i])
+				if errs[i] != nil {
+					checkErr = errs[i]
 				}
 			}
 
@@ -382,8 +412,8 @@ func checkCmd(configOpts *Options) *cobra.Command {
 	return cmd
 }
 
-func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, source config.Source) error {
-	stdout := cmd.OutOrStdout()
+func checkContext(ctx context.Context, w io.Writer, cfg config.Config, gCtx *config.Context, source config.Source) error {
+	stdout := w
 	title := "Context: "
 	titleLen := len(title) + len(gCtx.Name)
 	title += cmdio.Bold(gCtx.Name)
@@ -405,10 +435,10 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 		}
 	}
 
-	cmd.Println(cmdio.Yellow(title))
-	cmd.Println(cmdio.Yellow(strings.Repeat("=", titleLen)))
+	fmt.Fprintln(w, cmdio.Yellow(title))
+	fmt.Fprintln(w, cmdio.Yellow(strings.Repeat("=", titleLen)))
 
-	if err := gCtx.Validate(cmd.Context()); err != nil {
+	if err := gCtx.Validate(ctx); err != nil {
 		cmdio.Error(stdout, "Configuration: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Connectivity: %s", cmdio.Yellow("skipped"))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")
@@ -432,14 +462,14 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 	cmdio.Info(stdout, "Context type: %s", contextType)
 
-	restCfg, err := gCtx.ToRESTConfig(cmd.Context())
+	restCfg, err := gCtx.ToRESTConfig(ctx)
 	if err != nil {
 		cmdio.Error(stdout, "Configuration: %s", cmdio.Red(err.Error()))
 		return nil
 	}
-	restCfg.WireTokenPersistence(cmd.Context(), source, gCtx.Name, cfg.Sources)
+	restCfg.WireTokenPersistence(ctx, source, gCtx.Name, cfg.Sources)
 
-	if _, err := discovery.NewDefaultRegistry(cmd.Context(), restCfg); err != nil {
+	if _, err := discovery.NewDefaultRegistry(ctx, restCfg); err != nil {
 		cmdio.Error(stdout, "Connectivity: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")
 		printSuggestions(err)
@@ -448,7 +478,7 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 
 	cmdio.Success(stdout, "Connectivity: %s", cmdio.Green("online"))
 
-	version, raw, err := grafana.GetVersion(cmd.Context(), gCtx)
+	version, raw, err := grafana.GetVersion(ctx, gCtx)
 	if err != nil {
 		cmdio.Error(stdout, "Grafana version: %s", cmdio.Red(summarizeError(err))+"\n")
 		return nil
