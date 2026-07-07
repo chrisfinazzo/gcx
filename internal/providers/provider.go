@@ -6,12 +6,17 @@ import (
 )
 
 // ConfigKey describes a single configuration key for a provider.
-type ConfigKey struct {
-	// Name is the key name as it appears in the provider's config map.
-	Name string
-	// Secret indicates whether the value should be redacted in output.
-	Secret bool
-}
+//
+// This is a type alias for adapter.ConfigKey, not a distinct type. adapter
+// cannot import this package (this package already imports adapter for
+// Registration/TypedRegistrations, so the reverse import would cycle), so
+// adapter.NewProvider's declarative Provider type defines ConfigKeys() in
+// terms of adapter.ConfigKey directly. Aliasing here keeps that method's
+// signature identical to this interface's ConfigKeys() []ConfigKey, letting
+// *adapter.Provider structurally satisfy Provider without adapter importing
+// this package. See adapter.ConfigKey's doc comment for the mirrored field
+// documentation.
+type ConfigKey = adapter.ConfigKey
 
 // Provider defines the interface for a gcx provider.
 // Providers extend gcx with commands for managing Grafana Cloud

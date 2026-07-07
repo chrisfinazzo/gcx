@@ -478,6 +478,40 @@ Do not introduce new serialization bridges, dispatch patterns, or
 type-erasure mechanisms. If TypedCRUD does not fit your use case, raise
 the issue for architectural discussion.
 
+### Sanctioned Exception — Single-Seam Capability Assertion (`adapter.Resource[T]`)
+
+The declarative `adapter.Resource[T]` + `adapter.NewProvider` registration
+model (see `docs/specs/feature-provider-registration-simplification/`) needs
+to determine, at registration time, which CRUD verbs a provider's `NewClient`
+result actually supports. Detecting capability-interface satisfaction
+intrinsically requires a type assertion on the `any` value `NewClient`
+returns — there is no generics-only way to do this within the TypedCRUD
+model (maintainer ruling, 2026-07-07: acceptable as a documented exception —
+see the spec's Open Questions).
+
+This is a **documented, audited exception** to the "no `any` type erasure"
+rule above, narrowly scoped:
+
+- The assertion is confined to exactly ONE file:
+  `internal/resources/adapter/capability.go`. Grep for `.(Lister[`,
+  `.(Getter[`, `.(Creator[`, `.(Updater[`, `.(Deleter[`, `.(Validator[` — all
+  six must appear only there.
+- No provider package performs this assertion. Providers only implement the
+  capability interfaces (`Lister[T]`, `Getter[T]`, `Creator[T]`, `Updater[T]`,
+  `Deleter[T]`, `Validator[T]`) on their REST client; the seam converts
+  interface satisfaction into `TypedCRUD[T]`'s existing "nil Fn ⇒
+  `errors.ErrUnsupported`" semantics. No new dispatch or serialization
+  mechanism is introduced, and no second seam may be added anywhere else.
+- An unimplemented verb resolves to `errors.ErrUnsupported` (TypedCRUD's
+  existing behavior, unchanged); an unimplemented `Validator[T]` resolves to
+  a no-op dry-run (round-trip only, no error), not an error.
+
+This qualifies Pattern 18's "No `any` type erasure — all 17 types use
+concrete generics" claim below: that claim describes the **hand-written,
+per-provider registration path** (OnCall's `adapter.BuildRegistration`). The
+separate declarative `Resource[T]` path uses exactly one sanctioned
+`any`-assertion seam, documented here.
+
 ### Provider ConfigLoader
 
 All provider commands must use `providers.ConfigLoader` for `--config` flag
@@ -605,7 +639,10 @@ API group/version and client initialization pattern. The generic helper
 eliminates per-type boilerplate while keeping each registration self-documenting.
 
 **Key properties:**
-- No `any` type erasure — all 17 types use concrete generics
+- No `any` type erasure in this hand-written registration pattern — all 17
+  types use concrete generics. (The separate declarative `adapter.Resource[T]`
+  registration path uses exactly one sanctioned `any`-assertion seam; see
+  "Sanctioned Exception — Single-Seam Capability Assertion" above.)
 - No switch/case dispatch — CRUD behavior determined at registration time
 - Functional options express the CRUD matrix declaratively (only 10/17 types support create, etc.)
 - Special-case type conversions (e.g., Shift→ShiftRequest) are closures in the option, not if/else branches

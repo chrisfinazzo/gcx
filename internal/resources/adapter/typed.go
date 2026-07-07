@@ -103,6 +103,12 @@ type TypedCRUD[T ResourceNamer] struct {
 
 	// Aliases are the short names for selector resolution.
 	Aliases []string
+
+	// Example is an optional static example manifest, exposed via
+	// AsAdapter()'s ResourceAdapter.Example(). Nil means no example is
+	// carried on this TypedCRUD instance — use ExampleForGVK for the
+	// authoritative global-registration lookup instead.
+	Example json.RawMessage
 }
 
 // resourceName extracts the name from a domain object using ResourceIdentity.
@@ -228,13 +234,16 @@ func (c *TypedCRUD[T]) wrapTypedObject(item T) TypedObject[T] {
 	}
 }
 
-// AsAdapter returns a ResourceAdapter backed by this TypedCRUD.
-// Note: the returned adapter's Schema() and Example() return nil.
-// Schema/example are static registration metadata carried on Registration
-// (see BuildRegistration). Use SchemaForGVK/ExampleForGVK for authoritative
-// lookup.
+// AsAdapter returns a ResourceAdapter backed by this TypedCRUD. Schema is
+// always derived from T (SchemaFromType) — it is never nil. Example is
+// whatever c.Example carries (nil unless set). Use SchemaForGVK/ExampleForGVK
+// for the authoritative global-registration lookup instead, when available.
 func (c *TypedCRUD[T]) AsAdapter() ResourceAdapter {
-	return &typedAdapter[T]{crud: c}
+	return &typedAdapter[T]{
+		crud:    c,
+		schema:  SchemaFromType[T](c.Descriptor),
+		example: c.Example,
+	}
 }
 
 // ToUnstructured converts a domain object T into an unstructured Kubernetes envelope,
