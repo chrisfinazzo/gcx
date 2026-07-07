@@ -39,9 +39,9 @@ type ResourceAdapter interface {
 
 	// Schema returns the JSON Schema for this resource type, or nil if not
 	// available on this adapter instance. Note: adapters created via
-	// TypedCRUD.AsAdapter() return nil — schema/example are only injected
-	// through TypedRegistration.ToRegistration(). Use SchemaForGVK() for
-	// authoritative global lookup.
+	// TypedCRUD.AsAdapter() return nil — schema/example are carried on
+	// Registration (see BuildRegistration), not on the adapter instance.
+	// Use SchemaForGVK() for authoritative global lookup.
 	Schema() json.RawMessage
 
 	// Example returns an example manifest for this resource type, or nil if

@@ -69,21 +69,11 @@ func SloExample() json.RawMessage {
 	return b
 }
 
-// NewTypedCRUD creates a TypedCRUD for SLO definitions using the provided loader.
-// Returns both the CRUD instance and the config for additional operations like Prometheus queries.
-func NewTypedCRUD(ctx context.Context, loader GrafanaConfigLoader) (*adapter.TypedCRUD[Slo], internalconfig.NamespacedRESTConfig, error) {
-	cfg, err := loader.LoadGrafanaConfig(ctx)
-	if err != nil {
-		return nil, internalconfig.NamespacedRESTConfig{}, fmt.Errorf("failed to load REST config for SLO: %w", err)
-	}
-
-	client, err := NewClient(cfg)
-	if err != nil {
-		return nil, internalconfig.NamespacedRESTConfig{}, fmt.Errorf("failed to create SLO definitions client: %w", err)
-	}
-
-	//nolint:dupl // Duplicate TypedCRUD initialization intentional between factory functions.
-	crud := &adapter.TypedCRUD[Slo]{
+// newTypedCRUD builds the TypedCRUD for SLO definitions from an already
+// constructed client and config. Both NewTypedCRUD and NewFactoryFromConfig
+// funnel through this single construction path.
+func newTypedCRUD(client *Client, cfg internalconfig.NamespacedRESTConfig) *adapter.TypedCRUD[Slo] {
+	return &adapter.TypedCRUD[Slo]{
 		ListFn: adapter.LimitedListFn(client.List),
 		GetFn: func(ctx context.Context, name string) (*Slo, error) {
 			return client.Get(ctx, name)
@@ -116,7 +106,22 @@ func NewTypedCRUD(ctx context.Context, loader GrafanaConfigLoader) (*adapter.Typ
 		StripFields: []string{"uuid", "readOnly"},
 		Descriptor:  StaticDescriptor(),
 	}
-	return crud, cfg, nil
+}
+
+// NewTypedCRUD creates a TypedCRUD for SLO definitions using the provided loader.
+// Returns both the CRUD instance and the config for additional operations like Prometheus queries.
+func NewTypedCRUD(ctx context.Context, loader GrafanaConfigLoader) (*adapter.TypedCRUD[Slo], internalconfig.NamespacedRESTConfig, error) {
+	cfg, err := loader.LoadGrafanaConfig(ctx)
+	if err != nil {
+		return nil, internalconfig.NamespacedRESTConfig{}, fmt.Errorf("failed to load REST config for SLO: %w", err)
+	}
+
+	client, err := NewClient(cfg)
+	if err != nil {
+		return nil, internalconfig.NamespacedRESTConfig{}, fmt.Errorf("failed to create SLO definitions client: %w", err)
+	}
+
+	return newTypedCRUD(client, cfg), cfg, nil
 }
 
 // NewLazyFactory returns an adapter.Factory that loads its config lazily from the
@@ -143,40 +148,6 @@ func NewFactoryFromConfig(cfg internalconfig.NamespacedRESTConfig) adapter.Facto
 			return nil, fmt.Errorf("failed to create SLO definitions client: %w", err)
 		}
 
-		//nolint:dupl // Duplicate TypedCRUD initialization intentional between factory functions.
-		crud := &adapter.TypedCRUD[Slo]{
-			ListFn: adapter.LimitedListFn(client.List),
-			GetFn: func(ctx context.Context, name string) (*Slo, error) {
-				return client.Get(ctx, name)
-			},
-			CreateFn: func(ctx context.Context, slo *Slo) (*Slo, error) {
-				resp, err := client.Create(ctx, slo)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create SLO: %w", err)
-				}
-				created, err := client.Get(ctx, resp.UUID)
-				if err != nil {
-					return nil, fmt.Errorf("failed to fetch created SLO %q: %w", resp.UUID, err)
-				}
-				return created, nil
-			},
-			UpdateFn: func(ctx context.Context, name string, slo *Slo) (*Slo, error) {
-				if err := client.Update(ctx, name, slo); err != nil {
-					return nil, fmt.Errorf("failed to update SLO %q: %w", name, err)
-				}
-				updated, err := client.Get(ctx, name)
-				if err != nil {
-					return nil, fmt.Errorf("failed to fetch updated SLO %q: %w", name, err)
-				}
-				return updated, nil
-			},
-			DeleteFn: func(ctx context.Context, name string) error {
-				return client.Delete(ctx, name)
-			},
-			Namespace:   cfg.Namespace,
-			StripFields: []string{"uuid", "readOnly"},
-			Descriptor:  StaticDescriptor(),
-		}
-		return crud.AsAdapter(), nil
+		return newTypedCRUD(client, cfg).AsAdapter(), nil
 	}
 }
