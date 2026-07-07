@@ -15,6 +15,11 @@ import (
 	"k8s.io/client-go/tools/pager"
 )
 
+// maxConcurrentGetRequests bounds the per-name fan-out in GetMultiple, matching
+// the fan-out cap used elsewhere in the resources pipeline (adapter router,
+// puller).
+const maxConcurrentGetRequests = 10
+
 // NamespacedClient is a dynamic client with a namespace and a discovery registry.
 type NamespacedClient struct {
 	namespace string
@@ -94,9 +99,7 @@ func (c *NamespacedClient) GetMultiple(
 	ctx context.Context, desc resources.Descriptor, names []string, opts metav1.GetOptions,
 ) ([]unstructured.Unstructured, error) {
 	g, ctx := errgroup.WithContext(ctx)
-
-	// TODO: consider using a limit
-	// g.SetLimit(maxConcurrentGetRequests)
+	g.SetLimit(maxConcurrentGetRequests)
 
 	res := make([]unstructured.Unstructured, len(names))
 

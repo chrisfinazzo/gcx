@@ -16,6 +16,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// maxConcurrentListRequests bounds the per-resource-type fan-out in Pull (one
+// List/Get per filter), matching the fan-out cap used elsewhere in the resources
+// pipeline.
+const maxConcurrentListRequests = 10
+
 // PullClient is a client that can pull resources from Grafana.
 type PullClient interface {
 	Get(
@@ -46,12 +51,19 @@ type Puller struct {
 // It uses a ResourceClientRouter that delegates to provider adapters for provider-backed
 // resource types, and falls back to the default versioned dynamic client for native resources.
 func NewDefaultPuller(ctx context.Context, restConfig config.NamespacedRESTConfig) (*Puller, error) {
-	dynamicClient, err := dynamic.NewDefaultVersionedClient(restConfig)
+	registry, err := discovery.NewDefaultRegistry(ctx, restConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	registry, err := discovery.NewDefaultRegistry(ctx, restConfig)
+	return NewDefaultPullerWithRegistry(restConfig, registry)
+}
+
+// NewDefaultPullerWithRegistry creates a Puller reusing an already-built discovery
+// registry, avoiding a redundant discovery index build + adapter.RegisterAll when
+// the caller has already constructed one.
+func NewDefaultPullerWithRegistry(restConfig config.NamespacedRESTConfig, registry *discovery.Registry) (*Puller, error) {
+	dynamicClient, err := dynamic.NewDefaultVersionedClient(restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +127,7 @@ func (p *Puller) Pull(ctx context.Context, req PullRequest) (*OperationSummary, 
 	logger.Debug("Pulling resources")
 
 	errg, ctx := errgroup.WithContext(ctx)
+	errg.SetLimit(maxConcurrentListRequests)
 	partialRes := make([][]unstructured.Unstructured, len(filters))
 
 	for idx, filt := range filters {
