@@ -1,11 +1,11 @@
-## gcx aio11y experiments
+## gcx aio11y experiments test-suites versions
 
-Manage eval experiment runs.
+Manage test suite versions.
 
 ### Options
 
 ```
-  -h, --help   help for experiments
+  -h, --help   help for versions
 ```
 
 ### Options inherited from parent commands
@@ -22,14 +22,7 @@ Manage eval experiment runs.
 
 ### SEE ALSO
 
-* [gcx aio11y](gcx_aio11y.md)	 - Manage Grafana AI Observability resources
-* [gcx aio11y experiments cancel](gcx_aio11y_experiments_cancel.md)	 - Cancel a running experiment.
-* [gcx aio11y experiments create](gcx_aio11y_experiments_create.md)	 - Create a new experiment from a JSON or YAML file.
-* [gcx aio11y experiments get](gcx_aio11y_experiments_get.md)	 - Get a single experiment by run ID.
-* [gcx aio11y experiments list](gcx_aio11y_experiments_list.md)	 - List experiments.
-* [gcx aio11y experiments report](gcx_aio11y_experiments_report.md)	 - Fetch the aggregate report for an experiment.
-* [gcx aio11y experiments scores](gcx_aio11y_experiments_scores.md)	 - List scores produced by an experiment.
 * [gcx aio11y experiments test-suites](gcx_aio11y_experiments_test-suites.md)	 - Manage experiment test suites.
-* [gcx aio11y experiments trials](gcx_aio11y_experiments_trials.md)	 - Manage experiment test case trials.
-* [gcx aio11y experiments update](gcx_aio11y_experiments_update.md)	 - Patch an experiment's mutable fields.
+* [gcx aio11y experiments test-suites versions create](gcx_aio11y_experiments_test-suites_versions_create.md)	 - Create a draft test suite version.
+* [gcx aio11y experiments test-suites versions publish](gcx_aio11y_experiments_test-suites_versions_publish.md)	 - Publish a draft test suite version.
 

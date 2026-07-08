@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/grafana/gcx/internal/providers/aio11y/aio11yhttp"
@@ -32,6 +34,50 @@ func NewClient(base *aio11yhttp.Client) *Client {
 	return &Client{base: base}
 }
 
+func (c *Client) doJSON(ctx context.Context, method, path string, payload any, marshalErr, requestErr, notFoundID string, okStatuses ...int) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", marshalErr, err)
+		}
+		body = bytes.NewReader(encoded)
+	}
+
+	resp, err := c.base.DoRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", requestErr, err)
+	}
+
+	if resp.StatusCode == http.StatusNotFound && notFoundID != "" {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s: %w", notFoundID, ErrNotFound)
+	}
+	if !statusAllowed(resp.StatusCode, okStatuses...) {
+		defer resp.Body.Close()
+		return nil, aio11yhttp.HandleErrorResponse(resp)
+	}
+	return resp, nil
+}
+
+func doDecode[T any](ctx context.Context, client *Client, method, path string, payload any, marshalErr, requestErr, notFoundID, decodeErr string, okStatuses ...int) (*T, error) {
+	resp, err := client.doJSON(ctx, method, path, payload, marshalErr, requestErr, notFoundID, okStatuses...)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%s: %w", decodeErr, err)
+	}
+	return &out, nil
+}
+
+func statusAllowed(status int, okStatuses ...int) bool {
+	return slices.Contains(okStatuses, status)
+}
+
 // List returns experiments, paginated. Pass 0 for no limit.
 func (c *Client) List(ctx context.Context, limit int) ([]Experiment, error) {
 	return aio11yhttp.ListAll[Experiment](ctx, c.base, basePath, nil, limit)
@@ -44,75 +90,20 @@ func (c *Client) ListSuites(ctx context.Context, limit int) ([]TestSuite, error)
 
 // GetSuite returns a single test suite with its versions.
 func (c *Client) GetSuite(ctx context.Context, suiteID string) (*TestSuite, error) {
-	resp, err := c.base.DoRequest(ctx, http.MethodGet, testSuitesBasePath+"/"+url.PathEscape(suiteID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get test suite %s: %w", suiteID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", suiteID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var suite TestSuite
-	if err := json.NewDecoder(resp.Body).Decode(&suite); err != nil {
-		return nil, fmt.Errorf("failed to decode test suite response: %w", err)
-	}
-	return &suite, nil
+	return doDecode[TestSuite](ctx, c, http.MethodGet, testSuitesBasePath+"/"+url.PathEscape(suiteID), nil,
+		"", "failed to get test suite "+suiteID, suiteID, "failed to decode test suite response", http.StatusOK)
 }
 
 // CreateSuite creates a new test suite.
 func (c *Client) CreateSuite(ctx context.Context, suite *TestSuite) (*TestSuite, error) {
-	body, err := json.Marshal(suite)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal create suite request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, testSuitesBasePath, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create test suite: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var created TestSuite
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return nil, fmt.Errorf("failed to decode test suite response: %w", err)
-	}
-	return &created, nil
+	return doDecode[TestSuite](ctx, c, http.MethodPost, testSuitesBasePath, suite,
+		"failed to marshal create suite request", "failed to create test suite", "", "failed to decode test suite response", http.StatusOK, http.StatusCreated)
 }
 
 // UpdateSuite patches a test suite.
 func (c *Client) UpdateSuite(ctx context.Context, suiteID string, req *UpdateTestSuiteRequest) (*TestSuite, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal update suite request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPatch, testSuitesBasePath+"/"+url.PathEscape(suiteID), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to update test suite %s: %w", suiteID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", suiteID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var suite TestSuite
-	if err := json.NewDecoder(resp.Body).Decode(&suite); err != nil {
-		return nil, fmt.Errorf("failed to decode test suite response: %w", err)
-	}
-	return &suite, nil
+	return doDecode[TestSuite](ctx, c, http.MethodPatch, testSuitesBasePath+"/"+url.PathEscape(suiteID), req,
+		"failed to marshal update suite request", "failed to update test suite "+suiteID, suiteID, "failed to decode test suite response", http.StatusOK)
 }
 
 type UpdateTestSuiteRequest struct {
@@ -128,51 +119,17 @@ type CreateTestSuiteVersionRequest struct {
 
 // CreateSuiteVersion creates a draft version for a suite.
 func (c *Client) CreateSuiteVersion(ctx context.Context, suiteID string, req *CreateTestSuiteVersionRequest) (*TestSuiteVersion, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal create suite version request: %w", err)
-	}
-
 	path := testSuitesBasePath + "/" + url.PathEscape(suiteID) + "/versions"
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create test suite version for %s: %w", suiteID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var version TestSuiteVersion
-	if err := json.NewDecoder(resp.Body).Decode(&version); err != nil {
-		return nil, fmt.Errorf("failed to decode test suite version response: %w", err)
-	}
-	return &version, nil
+	return doDecode[TestSuiteVersion](ctx, c, http.MethodPost, path, req,
+		"failed to marshal create suite version request", "failed to create test suite version for "+suiteID, "", "failed to decode test suite version response", http.StatusOK, http.StatusCreated)
 }
 
 // PublishSuiteVersion publishes a draft suite version.
 func (c *Client) PublishSuiteVersion(ctx context.Context, suiteID, version string) (*TestSuiteVersion, error) {
 	escapedVersion := strings.ReplaceAll(url.PathEscape(version), ":", "%3A")
 	path := testSuitesBasePath + "/" + url.PathEscape(suiteID) + "/versions/" + escapedVersion + ":publish"
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to publish test suite version %s/%s: %w", suiteID, version, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s/%s: %w", suiteID, version, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var published TestSuiteVersion
-	if err := json.NewDecoder(resp.Body).Decode(&published); err != nil {
-		return nil, fmt.Errorf("failed to decode test suite version response: %w", err)
-	}
-	return &published, nil
+	return doDecode[TestSuiteVersion](ctx, c, http.MethodPost, path, nil,
+		"", "failed to publish test suite version "+suiteID+"/"+version, suiteID+"/"+version, "failed to decode test suite version response", http.StatusOK)
 }
 
 func testCasesPath(suiteID, version string) string {
@@ -187,116 +144,39 @@ func (c *Client) ListCases(ctx context.Context, suiteID, version string, limit i
 // GetCase returns a single test case.
 func (c *Client) GetCase(ctx context.Context, suiteID, version, testCaseID string) (*TestCase, error) {
 	path := testCasesPath(suiteID, version) + "/" + url.PathEscape(testCaseID)
-	resp, err := c.base.DoRequest(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get test case %s: %w", testCaseID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", testCaseID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var tc TestCase
-	if err := json.NewDecoder(resp.Body).Decode(&tc); err != nil {
-		return nil, fmt.Errorf("failed to decode test case response: %w", err)
-	}
-	return &tc, nil
+	return doDecode[TestCase](ctx, c, http.MethodGet, path, nil,
+		"", "failed to get test case "+testCaseID, testCaseID, "failed to decode test case response", http.StatusOK)
 }
 
 // UpsertCase creates or replaces a test case in a mutable suite version.
 func (c *Client) UpsertCase(ctx context.Context, suiteID, version string, tc *TestCase) (*TestCase, error) {
-	body, err := json.Marshal(tc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal test case request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, testCasesPath(suiteID, version), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to upsert test case: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var out TestCase
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("failed to decode test case response: %w", err)
-	}
-	return &out, nil
+	return doDecode[TestCase](ctx, c, http.MethodPost, testCasesPath(suiteID, version), tc,
+		"failed to marshal test case request", "failed to upsert test case", "", "failed to decode test case response", http.StatusOK, http.StatusCreated)
 }
 
 // PatchCase patches a test case in a mutable suite version.
 func (c *Client) PatchCase(ctx context.Context, suiteID, version, testCaseID string, patch map[string]any) (*TestCase, error) {
-	body, err := json.Marshal(patch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal test case patch: %w", err)
-	}
-
 	path := testCasesPath(suiteID, version) + "/" + url.PathEscape(testCaseID)
-	resp, err := c.base.DoRequest(ctx, http.MethodPatch, path, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to patch test case %s: %w", testCaseID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", testCaseID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var out TestCase
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("failed to decode test case response: %w", err)
-	}
-	return &out, nil
+	return doDecode[TestCase](ctx, c, http.MethodPatch, path, patch,
+		"failed to marshal test case patch", "failed to patch test case "+testCaseID, testCaseID, "failed to decode test case response", http.StatusOK)
 }
 
 // DeleteCase deletes a test case from a mutable suite version.
 func (c *Client) DeleteCase(ctx context.Context, suiteID, version, testCaseID string) error {
 	path := testCasesPath(suiteID, version) + "/" + url.PathEscape(testCaseID)
-	resp, err := c.base.DoRequest(ctx, http.MethodDelete, path, nil)
+	resp, err := c.doJSON(ctx, http.MethodDelete, path, nil,
+		"", "failed to delete test case "+testCaseID, testCaseID, http.StatusOK, http.StatusNoContent)
 	if err != nil {
-		return fmt.Errorf("failed to delete test case %s: %w", testCaseID, err)
+		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("%s: %w", testCaseID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return aio11yhttp.HandleErrorResponse(resp)
-	}
 	return nil
 }
 
 // Get returns a single experiment by run ID.
 func (c *Client) Get(ctx context.Context, runID string) (*Experiment, error) {
-	resp, err := c.base.DoRequest(ctx, http.MethodGet, basePath+"/"+url.PathEscape(runID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get experiment %s: %w", runID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", runID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var exp Experiment
-	if err := json.NewDecoder(resp.Body).Decode(&exp); err != nil {
-		return nil, fmt.Errorf("failed to decode experiment response: %w", err)
-	}
-	return &exp, nil
+	return doDecode[Experiment](ctx, c, http.MethodGet, basePath+"/"+url.PathEscape(runID), nil,
+		"", "failed to get experiment "+runID, runID, "failed to decode experiment response", http.StatusOK)
 }
 
 // ListTrials returns test case trials for an experiment.
@@ -307,76 +187,21 @@ func (c *Client) ListTrials(ctx context.Context, experimentID string, limit int)
 
 // CreateTrial creates or upserts a test case trial for an experiment.
 func (c *Client) CreateTrial(ctx context.Context, experimentID string, trial *TestCaseTrial) (*TestCaseTrial, error) {
-	body, err := json.Marshal(trial)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal create trial request: %w", err)
-	}
-
 	path := basePath + "/" + url.PathEscape(experimentID) + "/trials"
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create trial for experiment %s: %w", experimentID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var out TestCaseTrial
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("failed to decode test case trial response: %w", err)
-	}
-	return &out, nil
+	return doDecode[TestCaseTrial](ctx, c, http.MethodPost, path, trial,
+		"failed to marshal create trial request", "failed to create trial for experiment "+experimentID, "", "failed to decode test case trial response", http.StatusOK, http.StatusCreated)
 }
 
 // GetTrial returns a single test case trial.
 func (c *Client) GetTrial(ctx context.Context, trialID string) (*TestCaseTrial, error) {
-	resp, err := c.base.DoRequest(ctx, http.MethodGet, testCaseTrialsBasePath+"/"+url.PathEscape(trialID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get trial %s: %w", trialID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", trialID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var out TestCaseTrial
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("failed to decode test case trial response: %w", err)
-	}
-	return &out, nil
+	return doDecode[TestCaseTrial](ctx, c, http.MethodGet, testCaseTrialsBasePath+"/"+url.PathEscape(trialID), nil,
+		"", "failed to get trial "+trialID, trialID, "failed to decode test case trial response", http.StatusOK)
 }
 
 // UpdateTrial patches a single test case trial.
 func (c *Client) UpdateTrial(ctx context.Context, trialID string, req *UpdateTrialRequest) (*TestCaseTrial, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal update trial request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPatch, testCaseTrialsBasePath+"/"+url.PathEscape(trialID), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to update trial %s: %w", trialID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", trialID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var out TestCaseTrial
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("failed to decode test case trial response: %w", err)
-	}
-	return &out, nil
+	return doDecode[TestCaseTrial](ctx, c, http.MethodPatch, testCaseTrialsBasePath+"/"+url.PathEscape(trialID), req,
+		"failed to marshal update trial request", "failed to update trial "+trialID, trialID, "failed to decode test case trial response", http.StatusOK)
 }
 
 // ListTrialScores returns scores associated with a test case trial.
@@ -393,53 +218,14 @@ func (c *Client) ListTrialArtifacts(ctx context.Context, trialID string, limit i
 
 // Create creates a new experiment.
 func (c *Client) Create(ctx context.Context, exp *Experiment) (*Experiment, error) {
-	body, err := json.Marshal(exp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal create request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPost, basePath, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create experiment: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var created Experiment
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return nil, fmt.Errorf("failed to decode experiment response: %w", err)
-	}
-	return &created, nil
+	return doDecode[Experiment](ctx, c, http.MethodPost, basePath, exp,
+		"failed to marshal create request", "failed to create experiment", "", "failed to decode experiment response", http.StatusOK, http.StatusCreated)
 }
 
 // Update sends a partial PATCH against an existing experiment.
 func (c *Client) Update(ctx context.Context, runID string, req *UpdateRequest) (*Experiment, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal update request: %w", err)
-	}
-
-	resp, err := c.base.DoRequest(ctx, http.MethodPatch, basePath+"/"+url.PathEscape(runID), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to update experiment %s: %w", runID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", runID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var exp Experiment
-	if err := json.NewDecoder(resp.Body).Decode(&exp); err != nil {
-		return nil, fmt.Errorf("failed to decode experiment response: %w", err)
-	}
-	return &exp, nil
+	return doDecode[Experiment](ctx, c, http.MethodPatch, basePath+"/"+url.PathEscape(runID), req,
+		"failed to marshal update request", "failed to update experiment "+runID, runID, "failed to decode experiment response", http.StatusOK)
 }
 
 // Cancel transitions a running experiment to a canceled state.
@@ -474,22 +260,6 @@ func (c *Client) ListScores(ctx context.Context, runID string, limit int) ([]Sco
 
 // GetReport returns the aggregate report for an experiment run.
 func (c *Client) GetReport(ctx context.Context, runID string) (*ExperimentReport, error) {
-	resp, err := c.base.DoRequest(ctx, http.MethodGet, basePath+"/"+url.PathEscape(runID)+"/report", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get experiment report %s: %w", runID, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", runID, ErrNotFound)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, aio11yhttp.HandleErrorResponse(resp)
-	}
-
-	var report ExperimentReport
-	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
-		return nil, fmt.Errorf("failed to decode experiment report: %w", err)
-	}
-	return &report, nil
+	return doDecode[ExperimentReport](ctx, c, http.MethodGet, basePath+"/"+url.PathEscape(runID)+"/report", nil,
+		"", "failed to get experiment report "+runID, runID, "failed to decode experiment report", http.StatusOK)
 }

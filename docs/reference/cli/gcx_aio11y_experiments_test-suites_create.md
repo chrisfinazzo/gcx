@@ -1,11 +1,23 @@
-## gcx aio11y experiments
+## gcx aio11y experiments test-suites create
 
-Manage eval experiment runs.
+Create a test suite.
+
+```
+gcx aio11y experiments test-suites create [flags]
+```
 
 ### Options
 
 ```
-  -h, --help   help for experiments
+      --description string   Test suite description
+  -f, --filename string      File containing the test suite create payload (use - for stdin)
+  -h, --help                 help for create
+      --jq string            jq expression to apply to JSON output. Mutually exclusive with --json.
+      --json string          Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
+      --name string          Test suite name
+  -o, --output string        Output format. One of: agents, json, yaml (default "json")
+      --suite-id string      Stable test suite id
+      --tag strings          Test suite tag (repeatable or comma-separated)
 ```
 
 ### Options inherited from parent commands
@@ -22,14 +34,5 @@ Manage eval experiment runs.
 
 ### SEE ALSO
 
-* [gcx aio11y](gcx_aio11y.md)	 - Manage Grafana AI Observability resources
-* [gcx aio11y experiments cancel](gcx_aio11y_experiments_cancel.md)	 - Cancel a running experiment.
-* [gcx aio11y experiments create](gcx_aio11y_experiments_create.md)	 - Create a new experiment from a JSON or YAML file.
-* [gcx aio11y experiments get](gcx_aio11y_experiments_get.md)	 - Get a single experiment by run ID.
-* [gcx aio11y experiments list](gcx_aio11y_experiments_list.md)	 - List experiments.
-* [gcx aio11y experiments report](gcx_aio11y_experiments_report.md)	 - Fetch the aggregate report for an experiment.
-* [gcx aio11y experiments scores](gcx_aio11y_experiments_scores.md)	 - List scores produced by an experiment.
 * [gcx aio11y experiments test-suites](gcx_aio11y_experiments_test-suites.md)	 - Manage experiment test suites.
-* [gcx aio11y experiments trials](gcx_aio11y_experiments_trials.md)	 - Manage experiment test case trials.
-* [gcx aio11y experiments update](gcx_aio11y_experiments_update.md)	 - Patch an experiment's mutable fields.
 

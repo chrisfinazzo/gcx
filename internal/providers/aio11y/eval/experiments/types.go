@@ -186,10 +186,10 @@ type ScoreValue = scores.ScoreValue
 // ExperimentReport summarises the outcome of an experiment.
 type ExperimentReport struct {
 	Experiment Experiment                 `json:"experiment"`
-	Run        Experiment                 `json:"run,omitempty"`
+	Run        Experiment                 `json:"run,omitzero"`
 	Summary    ExperimentReportSummary    `json:"summary"`
 	Rows       []TestCaseResultRow        `json:"rows,omitempty"`
-	Breakdowns ExperimentReportBreakdowns `json:"breakdowns,omitempty"`
+	Breakdowns ExperimentReportBreakdowns `json:"breakdowns,omitzero"`
 	Points     []ExperimentReportPoint    `json:"points,omitempty"`
 }
 

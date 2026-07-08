@@ -1,6 +1,7 @@
 package experiments
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -878,6 +879,10 @@ type deleteCaseOpts struct {
 	Force bool
 }
 
+func (o *deleteCaseOpts) setup(flags *pflag.FlagSet) {
+	flags.BoolVar(&o.Force, "force", false, "Skip confirmation prompt")
+}
+
 func newCasesDeleteCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &deleteCaseOpts{}
 	cmd := &cobra.Command{
@@ -904,7 +909,7 @@ func newCasesDeleteCommand(loader *providers.ConfigLoader) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&opts.Force, "force", false, "Skip confirmation prompt")
+	opts.setup(cmd.Flags())
 	return cmd
 }
 
@@ -989,17 +994,24 @@ func newTrialsGetCommand(loader *providers.ConfigLoader) *cobra.Command {
 	return cmd
 }
 
-func newTrialsCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
+func newTrialMutationCommand[T any](
+	loader *providers.ConfigLoader,
+	use string,
+	short string,
+	fileHelp string,
+	successVerb string,
+	apply func(context.Context, *Client, string, *T) (*TestCaseTrial, error),
+) *cobra.Command {
 	opts := &fileOpts{}
 	cmd := &cobra.Command{
-		Use:   "create <experiment-id>",
-		Short: "Create or upsert a test case trial from a JSON or YAML file.",
+		Use:   use,
+		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.Validate(); err != nil {
 				return err
 			}
-			trial, err := readDataFile[TestCaseTrial](opts.File, cmd.InOrStdin())
+			payload, err := readDataFile[T](opts.File, cmd.InOrStdin())
 			if err != nil {
 				return err
 			}
@@ -1007,46 +1019,42 @@ func newTrialsCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := client.CreateTrial(cmd.Context(), args[0], trial)
+			out, err := apply(cmd.Context(), client, args[0], payload)
 			if err != nil {
 				return err
 			}
-			cmdio.Success(cmd.ErrOrStderr(), "Trial %s created", out.TrialID)
+			cmdio.Success(cmd.ErrOrStderr(), "Trial %s %s", out.TrialID, successVerb)
 			return opts.IO.Encode(cmd.OutOrStdout(), out)
 		},
 	}
-	opts.setup(cmd.Flags(), "File containing the trial payload (use - for stdin)")
+	opts.setup(cmd.Flags(), fileHelp)
 	return cmd
 }
 
-func newTrialsUpdateCommand(loader *providers.ConfigLoader) *cobra.Command {
-	opts := &fileOpts{}
-	cmd := &cobra.Command{
-		Use:   "update <trial-id>",
-		Short: "Patch a test case trial from a JSON or YAML file.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := opts.Validate(); err != nil {
-				return err
-			}
-			req, err := readDataFile[UpdateTrialRequest](opts.File, cmd.InOrStdin())
-			if err != nil {
-				return err
-			}
-			client, err := newClient(cmd, loader)
-			if err != nil {
-				return err
-			}
-			out, err := client.UpdateTrial(cmd.Context(), args[0], req)
-			if err != nil {
-				return err
-			}
-			cmdio.Success(cmd.ErrOrStderr(), "Trial %s updated", out.TrialID)
-			return opts.IO.Encode(cmd.OutOrStdout(), out)
+func newTrialsCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
+	return newTrialMutationCommand[TestCaseTrial](
+		loader,
+		"create <experiment-id>",
+		"Create or upsert a test case trial from a JSON or YAML file.",
+		"File containing the trial payload (use - for stdin)",
+		"created",
+		func(ctx context.Context, client *Client, experimentID string, trial *TestCaseTrial) (*TestCaseTrial, error) {
+			return client.CreateTrial(ctx, experimentID, trial)
 		},
-	}
-	opts.setup(cmd.Flags(), "File containing the trial patch payload (use - for stdin)")
-	return cmd
+	)
+}
+
+func newTrialsUpdateCommand(loader *providers.ConfigLoader) *cobra.Command {
+	return newTrialMutationCommand[UpdateTrialRequest](
+		loader,
+		"update <trial-id>",
+		"Patch a test case trial from a JSON or YAML file.",
+		"File containing the trial patch payload (use - for stdin)",
+		"updated",
+		func(ctx context.Context, client *Client, trialID string, req *UpdateTrialRequest) (*TestCaseTrial, error) {
+			return client.UpdateTrial(ctx, trialID, req)
+		},
+	)
 }
 
 func newTrialScoresCommand(loader *providers.ConfigLoader) *cobra.Command {
