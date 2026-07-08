@@ -2,8 +2,15 @@
 
 Recovery patterns for CLI failures encountered during diagnostic workflows.
 
-**Flags verified against**: `cmd/gcx/datasources/query/command.go`, `cmd/gcx/config/command.go`, `cmd/gcx/datasources/`
-**Source commit**: HEAD of branch `t1-cli-flag-audit`
+## Contents
+
+- [Failure Mode 1: Authentication / Authorization Error (401/403)](#failure-mode-1-authentication--authorization-error-401403)
+- [Failure Mode 2: Datasource Not Found](#failure-mode-2-datasource-not-found)
+- [Failure Mode 3: Query Returns Empty Result Set](#failure-mode-3-query-returns-empty-result-set)
+- [Failure Mode 4: Query Timeout or Server Error (5xx)](#failure-mode-4-query-timeout-or-server-error-5xx)
+- [Failure Mode 5: Malformed PromQL or LogQL Syntax Error](#failure-mode-5-malformed-promql-or-logql-syntax-error)
+- [Failure Mode 6: "Accepts between 0 and 1 arg(s), received 2"](#failure-mode-6-accepts-between-0-and-1-args-received-2)
+- [Quick Reference: Recovery Command Cheatsheet](#quick-reference-recovery-command-cheatsheet)
 
 ---
 
@@ -127,6 +134,7 @@ Or for a range query:
 - The time range (`--from` / `--to`) falls outside the retention period or before the service was instrumented.
 - The label filters in the query are too restrictive (e.g., a `job` label value that does not exist).
 - The datasource is healthy but the service being queried is down and emitting no data.
+- **Loki-specific**: a structured-metadata or parsed key was placed inside the `{...}` selector. Only indexed stream labels are valid there. `{detected_level="error"}` matches nothing — Loki's `detected_level` is structured metadata, so it must go after a pipe: `{job="app"} | detected_level="error"`. Parsed fields need the parser stage first: `{job="app"} | json | status="500"`.
 
 ### Corrective Action
 

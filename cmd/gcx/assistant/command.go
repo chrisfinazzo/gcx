@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	mcpserverscmd "github.com/grafana/gcx/cmd/gcx/assistant/mcpservers"
 	cmdconfig "github.com/grafana/gcx/cmd/gcx/config"
 	"github.com/grafana/gcx/internal/agent"
 	"github.com/grafana/gcx/internal/assistant"
@@ -100,6 +101,22 @@ Service account tokens are not supported.`,
 		return nil
 	}
 	cmd.AddCommand(invCmd)
+
+	mcpLoader := &providers.ConfigLoader{}
+	mcpCmd := mcpserverscmd.Commands(mcpLoader)
+	mcpCmd.PersistentPreRunE = func(c *cobra.Command, args []string) error {
+		if err := cmd.PersistentPreRunE(c, args); err != nil {
+			return err
+		}
+		if configOpts.ConfigFile != "" {
+			mcpLoader.SetConfigFile(configOpts.ConfigFile)
+		}
+		if configOpts.Context != "" {
+			mcpLoader.SetContextName(configOpts.Context)
+		}
+		return nil
+	}
+	cmd.AddCommand(mcpCmd)
 	return cmd
 }
 
@@ -508,7 +525,7 @@ func buildTokenRefresher(ctx context.Context, configOpts *cmdconfig.Options, ctx
 		}
 
 		// Do the refresh
-		rr, err := auth.DoRefresh(ctx, proxyEndpoint, refreshToken)
+		rr, err := auth.ProxyRefresh(ctx, proxyEndpoint, refreshToken)
 		if err != nil {
 			return token, err // return stale token on failure
 		}

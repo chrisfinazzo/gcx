@@ -44,11 +44,12 @@ Two tiers: **K8s resource tier** (dashboards, folders via `/apis`) and **Cloud p
 mise run build       # Build to bin/gcx
 mise run tests       # Run all tests with race detection
 mise run lint        # Run golangci-lint
+mise run gate        # lint + tests + build (no docs) — fast pre-push gate for code changes
 mise run all         # lint + tests + build + docs
 mise run docs        # Generate + build all documentation
 ```
 
-**Without mise**: replace with direct Go commands — `go build -buildvcs=false -o bin/gcx ./cmd/gcx/` and `go test ./...`. Always build to `bin/gcx`.
+**Without mise**: replace with direct Go commands — `go build -buildvcs=false -o bin/gcx ./cmd/gcx/` and `go test ./...`. Always build to `bin/gcx`. Lint runs in Go **module mode** (`golangci-lint`'s `modules-download-mode: readonly`), so no `vendor/` directory is needed locally — the module cache (`go mod download`, run automatically on worktree entry) is sufficient.
 
 > **Agent environments**: always prefix with `GCX_AGENT_MODE=false` — agent-mode auto-detection changes output defaults in `mise run docs`, producing wrong CLI reference docs.
 
@@ -105,6 +106,7 @@ internal/
 ├── providers/   Provider plugin system (interface, registry, self-registration)
 │   ├── alert/      Alert provider (rules, groups — read-only)
 │   ├── dashboards/ Dashboards provider (CRUD, search, versions, snapshot)
+│   ├── datasources/ Datasources provider — bridges /api/datasources into the resources pipeline via ResourceAdapter (no commands; managed via `gcx resources`)
 │   ├── faro/       Frontend Observability provider (apps CRUD, sourcemaps sub-resource) — CLI: `gcx frontend`
 │   ├── fleet/      Fleet Management provider (pipeline and collector resources)
 │   ├── instrumentation/  Instrumentation Hub provider (typed connect-go client, RMW with optimistic-lock, output codecs, helm formatter, enumerate helper)
@@ -145,7 +147,8 @@ internal/
 ├── queryerror/  Typed API error for datasource query failures (APIError type, New/FromBody constructors, IsParseError helper)
 ├── assistant/   Assistant client (A2A streaming, prompt, state management)
 │   ├── assistanthttp/  Base HTTP client for grafana-assistant-app plugin API
-│   └── investigations/ Investigation CRUD commands, table codecs, v1 (legacy) + v2 (Lodestone) API clients with auto-detected capability cached via `SaveProviderConfig` at `providers.assistant.lodestone-v2` in the gcx config file
+│   ├── investigations/ Investigation CRUD commands, table codecs, v1 (legacy) + v2 (Lodestone) API clients with auto-detected capability cached via `SaveProviderConfig` at `providers.assistant.lodestone-v2` in the gcx config file
+│   └── mcpservers/     MCP server integration client (list/get/create/update/delete, OAuth initiate/validate, user vs tenant scope headers)
 ├── agent/       Agent mode detection, command annotations, known-resource registry with operation hints
 ├── agentlog/    Agent invocation failure logger (opt-in JSONL disk log, XDG state dir — wired into handleError in cmd/gcx/main.go)
 ├── style/       Terminal styling (Grafana Neon Dark theme, TableBuilder, ASCII banner, glamour help)

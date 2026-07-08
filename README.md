@@ -69,6 +69,12 @@ Compiles from source on your machine (requires Homebrew's `go`, installed
 automatically as a build dependency). First install takes ~30–60 seconds
 while Go fetches dependencies; subsequent upgrades are faster.
 
+To update to the latest version:
+
+```bash
+brew update && brew upgrade gcx
+```
+
 **Pre-built binary (Linux/macOS/Windows):**
 
 Download the latest archive for your OS and architecture from the
@@ -82,7 +88,7 @@ chmod +x gcx && sudo mv gcx /usr/local/bin/
 
 On macOS, the manually-downloaded binary may be blocked on first run with
 *"Apple could not verify…"* or `killed: 9` — see
-[macOS Gatekeeper and killed: 9](docs/installation.md#macos-gatekeeper-and-killed-9)
+[macOS Gatekeeper and killed: 9](docs/sources/installation.md#macos-gatekeeper-and-killed-9)
 for the one-time workaround. The `curl | sh` installer above handles this
 automatically.
 
@@ -362,7 +368,7 @@ gcx provides dedicated commands for each Grafana Cloud product:
 | **Frontend Observability** | `gcx frontend` | `frontend apps list`, `frontend apps get` |
 | **App Observability** | `gcx appo11y` | `appo11y overrides get`, `appo11y settings get` |
 | **AI Observability (Sigil)** | `gcx aio11y` | `aio11y conversations list`, `aio11y agents list`, `aio11y rules list` |
-| **Assistant** | `gcx assistant` | `assistant prompt`, `assistant investigations list`, `assistant investigations report` |
+| **Assistant** | `gcx assistant` | `assistant prompt`, `assistant investigations list`, `assistant mcp-servers list` |
 | **Adaptive Metrics** | `gcx metrics adaptive` | `metrics adaptive recommendations show`, `metrics adaptive rules list` |
 | **Adaptive Logs** | `gcx logs adaptive` | `logs adaptive patterns show`, `logs adaptive drop-rules list` |
 | **Adaptive Traces** | `gcx traces adaptive` | `traces adaptive recommendations show`, `traces adaptive policies list` |
@@ -509,8 +515,8 @@ jobs:
 
 | Topic | Description |
 |-------|-------------|
-| [Installation](docs/installation.md) | Install gcx on macOS, Linux, and Windows |
-| [Configuration](docs/configuration.md) | Contexts, authentication, environment variables |
+| [Installation](docs/sources/installation.md) | Install gcx on macOS, Linux, and Windows |
+| [Configuration](docs/sources/configuration.md) | Contexts, authentication, environment variables |
 | [Managing Resources](docs/guides/manage-resources.md) | Get, push, pull, delete, edit, validate |
 | [Dashboards as Code](docs/guides/dashboards-as-code.md) | Dashboard-as-code workflow with live dev server |
 | [Linting Resources](docs/guides/lint-resources.md) | Lint dashboards and alert rules with Rego policies |

@@ -50,7 +50,7 @@ func (f *scopeFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.site, "site", "", "Site scope")
 	cmd.Flags().StringVar(&f.from, "from", "", "Start time (RFC3339, Unix timestamp, or relative like 'now-1h')")
 	cmd.Flags().StringVar(&f.to, "to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
-	cmd.Flags().StringVar(&f.since, "since", "", "Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)")
+	cmd.Flags().StringVar(&f.since, "since", "", "Duration before --to (or now); mutually exclusive with --from/--to (e.g. 1h, 30m, 7d)")
 }
 
 func (f *scopeFlags) resolveTime() (int64, int64, error) {
@@ -116,7 +116,11 @@ func (f *scopeFlags) validateScopes(ctx context.Context, client *Client) error {
 	if len(active) == 0 {
 		return nil
 	}
-	scopes, err := client.ListEntityScopes(ctx)
+	startMs, endMs, err := f.resolveTime()
+	if err != nil {
+		return err
+	}
+	scopes, err := client.ListEntityScopes(ctx, startMs, endMs)
 	if err != nil {
 		return nil //nolint:nilerr // best-effort: scope validation is advisory
 	}
@@ -1240,7 +1244,8 @@ analysis, use 'gcx kg entities inspect' instead.`,
 	listOpts.setup(listCmd.Flags())
 	_ = listCmd.MarkFlagRequired("type")
 
-	cmd.AddCommand(listCmd, newEntitiesInspectCommand(loader), newCypherCommand(loader))
+	cmd.AddCommand(listCmd, newEntitiesInspectCommand(loader), newCypherCommand(loader),
+		newEntitiesCreateCommand(loader), newEntitiesDeleteCommand(loader))
 	return cmd
 }
 
@@ -1562,13 +1567,22 @@ func isEmptyLLMResult(result map[string]any) bool {
 // provide one. It first tries LookupEntity, then falls back to a name-exact
 // search. Returns nil scope (not an error) when the entity simply isn't found —
 // the caller lets LLMSummary produce the definitive not-found response.
-func discoverEntityScope(cmd *cobra.Command, client *Client, entityType, name string, startMs, endMs int64) (map[string]string, error) {
-	lookup, err := client.LookupEntity(cmd.Context(), entityType, name, nil, startMs, endMs)
+func discoverEntityScope(cmd *cobra.Command, client *Client, entityType, name, domain string, startMs, endMs int64) (map[string]string, error) {
+	lookup, err := client.LookupEntity(cmd.Context(), entityType, name, nil, domain, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
 	if lookup != nil {
 		return lookup.Scope, nil
+	}
+	// Only LookupEntity honors the domain filter. The searchByTypes fallback
+	// below has no domain filter (the Search API's ScopeCriteria is label
+	// values only, and SearchResult carries no domain), so widening to it
+	// when --domain is set could surface an entity from another domain —
+	// contradicting the flag. Stop here and let the caller produce the
+	// not-found response, keeping discovery scoped to the requested domain.
+	if domain != "" {
+		return nil, nil //nolint:nilnil // deliberate: no match within the requested domain is not an error
 	}
 	results, err := searchByTypes(cmd.Context(), cmd, client, []string{entityType}, false, false, nil, startMs, endMs, 0, []PropertyMatcher{{Name: "name", Op: "=", Value: name}})
 	if err != nil {
@@ -1597,6 +1611,7 @@ func discoverEntityScope(cmd *cobra.Command, client *Client, entityType, name st
 
 func newEntitiesInspectCommand(loader RESTConfigLoader) *cobra.Command {
 	var inspectScope scopeFlags
+	var inspectDomain string
 	ioOpts := &inspectOpts{}
 	cmd := &cobra.Command{
 		Use:   "inspect [Type--Name]",
@@ -1637,7 +1652,7 @@ narrow to one entity), which is cheaper and returns those fields directly.`,
 			}
 			scope := inspectScope.scopeMap()
 			if scope == nil {
-				discovered, err := discoverEntityScope(cmd, client, entityType, name, startMs, endMs)
+				discovered, err := discoverEntityScope(cmd, client, entityType, name, inspectDomain, startMs, endMs)
 				if err != nil {
 					return err
 				}
@@ -1703,6 +1718,7 @@ narrow to one entity), which is cheaper and returns those fields directly.`,
 	}
 	cmd.Flags().String("type", "", "Entity type (run 'gcx kg meta schema' to see available types)")
 	cmd.Flags().String("name", "", "Entity name")
+	cmd.Flags().StringVar(&inspectDomain, "domain", "", "Restrict scope auto-discovery to a single KG domain (only applies when scope is auto-discovered; no effect when --env/--namespace/--site is given)")
 	inspectScope.register(cmd)
 	cmd.Flags().Lookup("env").Usage = "Environment scope (run 'gcx kg meta scopes' to see valid values)"
 	cmd.Flags().Lookup("namespace").Usage = "Namespace scope (run 'gcx kg meta scopes' to see valid values)"
@@ -2013,7 +2029,7 @@ Tips:
 	}
 	cmd.Flags().StringVar(&cypherScope.from, "from", "", "Start time (RFC3339, Unix timestamp, or relative like 'now-1h')")
 	cmd.Flags().StringVar(&cypherScope.to, "to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
-	cmd.Flags().StringVar(&cypherScope.since, "since", "", "Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)")
+	cmd.Flags().StringVar(&cypherScope.since, "since", "", "Duration before --to (or now); mutually exclusive with --from/--to (e.g. 1h, 30m, 7d)")
 	cmd.Flags().IntVar(&cypherPage, "page", 0, "Page number (0-based)")
 	cmd.Flags().BoolVar(&withInsights, "insights-only", false, "Return only entities with active insights")
 	ioOpts.setup(cmd.Flags())
@@ -2236,7 +2252,7 @@ func (o *describeOpts) setupWithTime(flags *pflag.FlagSet) {
 	o.setup(flags)
 	flags.StringVar(&o.Time.from, "from", "", "Start time (RFC3339, Unix timestamp, or relative like 'now-1h')")
 	flags.StringVar(&o.Time.to, "to", "", "End time (RFC3339, Unix timestamp, or relative like 'now')")
-	flags.StringVar(&o.Time.since, "since", "", "Duration before --to (or now); mutually exclusive with --from (e.g. 1h, 30m, 7d)")
+	flags.StringVar(&o.Time.since, "since", "", "Duration before --to (or now); mutually exclusive with --from/--to (e.g. 1h, 30m, 7d)")
 }
 
 // DescribeTextCodec renders KGMetadataOutput in the compact LLM-friendly text format
@@ -2378,14 +2394,18 @@ func newDescribeScopesCmd(loader RESTConfigLoader) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scopes, err := client.ListEntityScopes(cmd.Context())
+			startMs, endMs, err := opts.Time.resolveTime()
+			if err != nil {
+				return err
+			}
+			scopes, err := client.ListEntityScopes(cmd.Context(), startMs, endMs)
 			if err != nil {
 				return err
 			}
 			return opts.IO.Encode(cmd.OutOrStdout(), KGMetadataOutput{Scopes: scopes})
 		},
 	}
-	opts.setup(cmd.Flags())
+	opts.setupWithTime(cmd.Flags())
 	return cmd
 }
 
@@ -2512,7 +2532,7 @@ func newDescribeAllCmd(loader RESTConfigLoader) *cobra.Command {
 				return nil
 			})
 			g.Go(func() error {
-				scopes, scopeErr := client.ListEntityScopes(gCtx)
+				scopes, scopeErr := client.ListEntityScopes(gCtx, startMs, endMs)
 				if scopeErr != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: scope values failed to load: %v\n", scopeErr)
 					return nil
