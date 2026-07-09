@@ -1,15 +1,15 @@
-## gcx aio11y experiments trials artifacts
+## gcx aio11y experiments trials list-artifacts
 
 List artifacts for a test case trial.
 
 ```
-gcx aio11y experiments trials artifacts <trial-id> [flags]
+gcx aio11y experiments trials list-artifacts <trial-id> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help            help for artifacts
+  -h, --help            help for list-artifacts
       --jq string       jq expression to apply to JSON output. Mutually exclusive with --json.
       --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
       --limit int       Maximum number of artifacts to return (0 for no limit) (default 50)

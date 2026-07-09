@@ -23,10 +23,9 @@ Manage experiment test case trials.
 ### SEE ALSO
 
 * [gcx aio11y experiments](gcx_aio11y_experiments.md)	 - Manage eval experiment runs.
-* [gcx aio11y experiments trials artifacts](gcx_aio11y_experiments_trials_artifacts.md)	 - List artifacts for a test case trial.
 * [gcx aio11y experiments trials create](gcx_aio11y_experiments_trials_create.md)	 - Create or upsert a test case trial from a JSON or YAML file.
 * [gcx aio11y experiments trials get](gcx_aio11y_experiments_trials_get.md)	 - Get a single test case trial.
-* [gcx aio11y experiments trials list](gcx_aio11y_experiments_trials_list.md)	 - List test case trials for an experiment.
-* [gcx aio11y experiments trials scores](gcx_aio11y_experiments_trials_scores.md)	 - List scores for a test case trial.
+* [gcx aio11y experiments trials get-scores](gcx_aio11y_experiments_trials_get-scores.md)	 - List scores for a test case trial.
+* [gcx aio11y experiments trials list-artifacts](gcx_aio11y_experiments_trials_list-artifacts.md)	 - List artifacts for a test case trial.
 * [gcx aio11y experiments trials update](gcx_aio11y_experiments_trials_update.md)	 - Patch a test case trial from a JSON or YAML file.
 

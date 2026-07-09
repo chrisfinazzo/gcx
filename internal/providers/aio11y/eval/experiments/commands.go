@@ -43,6 +43,7 @@ func Commands(loader *providers.ConfigLoader) *cobra.Command {
 		newCancelCommand(loader),
 		newScoresCommand(loader),
 		newReportCommand(loader),
+		newListTrialsCommand(loader),
 		newTestSuitesCommand(loader),
 		newTrialsCommand(loader),
 	)
@@ -82,6 +83,15 @@ func readDataFile[T any](path string, stdin io.Reader) (*T, error) {
 		}
 	}
 	return &out, nil
+}
+
+func exactArgsWithSuggestion(expected int, usage string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) == expected {
+			return nil
+		}
+		return fmt.Errorf("expected format: %s (received %d args)", usage, len(args))
+	}
 }
 
 // --- list ---
@@ -181,47 +191,15 @@ func (o *createOpts) Validate() error {
 	return o.IO.Validate()
 }
 
-// readExperimentFile reads an Experiment from a JSON or YAML file. The
-// format is picked from the file extension when known (.json, .yaml, .yml)
-// so that a typo in a JSON file surfaces a JSON error rather than a
-// confusing YAML one. For stdin or unknown extensions, JSON is tried first
-// and YAML is used as a fallback.
 func readExperimentFile(path string, stdin io.Reader) (*Experiment, error) {
-	var data []byte
-	var err error
-	if path == "-" {
-		data, err = io.ReadAll(stdin)
-	} else {
-		data, err = os.ReadFile(path)
-	}
+	exp, err := readDataFile[Experiment](path, stdin)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-
-	var exp Experiment
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".json":
-		if err := json.Unmarshal(data, &exp); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
-		}
-	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &exp); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
-		}
-	default:
-		jsonErr := json.Unmarshal(data, &exp)
-		if jsonErr != nil {
-			var yamlExp Experiment
-			if yamlErr := yaml.Unmarshal(data, &yamlExp); yamlErr != nil {
-				return nil, fmt.Errorf("parsing %s as JSON or YAML: %w", path, errors.Join(jsonErr, yamlErr))
-			}
-			exp = yamlExp
-		}
+		return nil, err
 	}
 	if strings.TrimSpace(exp.Name) == "" {
 		return nil, fmt.Errorf("parsing %s: name is required", path)
 	}
-	return &exp, nil
+	return exp, nil
 }
 
 func newCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
@@ -566,6 +544,9 @@ func newSuitesCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if strings.TrimSpace(suite.Name) == "" {
+					return fmt.Errorf("parsing %s: name is required", opts.File)
+				}
 			} else {
 				if strings.TrimSpace(opts.Name) == "" {
 					return errors.New("--filename/-f or --name is required")
@@ -752,7 +733,7 @@ func newCasesListCommand(loader *providers.ConfigLoader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list <suite-id> <version>",
 		Short: "List test cases in a suite version.",
-		Args:  cobra.ExactArgs(2),
+		Args:  exactArgsWithSuggestion(2, "gcx aio11y experiments test-suites cases list <suite-id> <version>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
 				return err
@@ -921,12 +902,11 @@ func newTrialsCommand(loader *providers.ConfigLoader) *cobra.Command {
 		Short: "Manage experiment test case trials.",
 	}
 	cmd.AddCommand(
-		newTrialsListCommand(loader),
 		newTrialsGetCommand(loader),
 		newTrialsCreateCommand(loader),
 		newTrialsUpdateCommand(loader),
-		newTrialScoresCommand(loader),
-		newTrialArtifactsCommand(loader),
+		newTrialGetScoresCommand(loader),
+		newTrialListArtifactsCommand(loader),
 	)
 	return cmd
 }
@@ -944,12 +924,12 @@ func (o *trialsListOpts) setup(flags *pflag.FlagSet) {
 	flags.Int64Var(&o.Limit, "limit", 50, "Maximum number of trials to return (0 for no limit)")
 }
 
-func newTrialsListCommand(loader *providers.ConfigLoader) *cobra.Command {
+func newListTrialsCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &trialsListOpts{}
 	cmd := &cobra.Command{
-		Use:   "list <experiment-id>",
+		Use:   "list-trials <experiment-id>",
 		Short: "List test case trials for an experiment.",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgsWithSuggestion(1, "gcx aio11y experiments list-trials <experiment-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
 				return err
@@ -1057,10 +1037,10 @@ func newTrialsUpdateCommand(loader *providers.ConfigLoader) *cobra.Command {
 	)
 }
 
-func newTrialScoresCommand(loader *providers.ConfigLoader) *cobra.Command {
+func newTrialGetScoresCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &scoresOpts{}
 	cmd := &cobra.Command{
-		Use:   "scores <trial-id>",
+		Use:   "get-scores <trial-id>",
 		Short: "List scores for a test case trial.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1095,10 +1075,10 @@ func (o *artifactsOpts) setup(flags *pflag.FlagSet) {
 	flags.Int64Var(&o.Limit, "limit", 50, "Maximum number of artifacts to return (0 for no limit)")
 }
 
-func newTrialArtifactsCommand(loader *providers.ConfigLoader) *cobra.Command {
+func newTrialListArtifactsCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &artifactsOpts{}
 	cmd := &cobra.Command{
-		Use:   "artifacts <trial-id>",
+		Use:   "list-artifacts <trial-id>",
 		Short: "List artifacts for a test case trial.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

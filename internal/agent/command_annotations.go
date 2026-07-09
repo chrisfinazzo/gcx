@@ -558,6 +558,10 @@ var commandAnnotations = map[string]annotation{
 	"gcx aio11y experiments cancel": {Cost: "small"},
 	"gcx aio11y experiments scores": {Cost: "medium", Hint: "<run-id> --limit 50 -o json"},
 	"gcx aio11y experiments report": {Cost: "medium", Hint: "<run-id> -o json"},
+	"gcx aio11y experiments list-trials": {
+		Cost: "small",
+		Hint: "<experiment-id> -o json",
+	},
 
 	"gcx aio11y experiments test-suites list":             {Cost: "small"},
 	"gcx aio11y experiments test-suites get":              {Cost: "small", Hint: "<suite-id> -o yaml"},
@@ -570,12 +574,11 @@ var commandAnnotations = map[string]annotation{
 	"gcx aio11y experiments test-suites cases upsert":     {Cost: "small"},
 	"gcx aio11y experiments test-suites cases patch":      {Cost: "small"},
 	"gcx aio11y experiments test-suites cases delete":     {Cost: "small"},
-	"gcx aio11y experiments trials list":                  {Cost: "small", Hint: "<experiment-id> -o json"},
 	"gcx aio11y experiments trials get":                   {Cost: "small", Hint: "<trial-id> -o yaml"},
 	"gcx aio11y experiments trials create":                {Cost: "small"},
 	"gcx aio11y experiments trials update":                {Cost: "small"},
-	"gcx aio11y experiments trials scores":                {Cost: "medium", Hint: "<trial-id> -o json"},
-	"gcx aio11y experiments trials artifacts":             {Cost: "small", Hint: "<trial-id> -o json"},
+	"gcx aio11y experiments trials get-scores":            {Cost: "medium", Hint: "<trial-id> -o json"},
+	"gcx aio11y experiments trials list-artifacts":        {Cost: "small", Hint: "<trial-id> -o json"},
 
 	// -----------------------------------------------------------------------
 	// SLO provider

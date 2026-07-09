@@ -15,10 +15,10 @@ const basePath = "/eval/experiments"
 const testSuitesBasePath = "/eval/test-suites"
 const testCaseTrialsBasePath = "/eval/test-case-trials"
 
-// ErrNotFound is returned by per-run methods (Get, Update, Cancel, GetReport)
-// when the server responds with 404 so callers can distinguish a missing run
-// from other API errors.
-var ErrNotFound = errors.New("experiment not found")
+// ErrNotFound is returned by resource lookup and mutation methods when the
+// server responds with 404 so callers can distinguish a missing resource from
+// other API errors. Callers wrap it with the relevant resource ID.
+var ErrNotFound = errors.New("not found")
 
 // Client wraps the AI Observability plugin proxy with experiment-specific endpoints.
 type Client struct {

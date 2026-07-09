@@ -1,15 +1,15 @@
-## gcx aio11y experiments trials scores
+## gcx aio11y experiments trials get-scores
 
 List scores for a test case trial.
 
 ```
-gcx aio11y experiments trials scores <trial-id> [flags]
+gcx aio11y experiments trials get-scores <trial-id> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help            help for scores
+  -h, --help            help for get-scores
       --jq string       jq expression to apply to JSON output. Mutually exclusive with --json.
       --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
       --limit int       Maximum number of scores to return (0 for no limit) (default 50)

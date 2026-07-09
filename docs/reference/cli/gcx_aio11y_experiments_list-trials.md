@@ -1,15 +1,15 @@
-## gcx aio11y experiments trials list
+## gcx aio11y experiments list-trials
 
 List test case trials for an experiment.
 
 ```
-gcx aio11y experiments trials list <experiment-id> [flags]
+gcx aio11y experiments list-trials <experiment-id> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help            help for list
+  -h, --help            help for list-trials
       --jq string       jq expression to apply to JSON output. Mutually exclusive with --json.
       --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
       --limit int       Maximum number of trials to return (0 for no limit) (default 50)
@@ -30,5 +30,5 @@ gcx aio11y experiments trials list <experiment-id> [flags]
 
 ### SEE ALSO
 
-* [gcx aio11y experiments trials](gcx_aio11y_experiments_trials.md)	 - Manage experiment test case trials.
+* [gcx aio11y experiments](gcx_aio11y_experiments.md)	 - Manage eval experiment runs.
 
