@@ -140,5 +140,9 @@ diagnostics:
   # LogDir overrides the output directory for agent invocation log files.
   # Default: $XDG_STATE_HOME/gcx/ (platform-specific).
   log-dir: string
+  # Telemetry controls anonymous usage telemetry: "enabled", "disabled",
+  # or "log" (prints to stderr). Overridden by the GCX_TELEMETRY and
+  # DO_NOT_TRACK environment variables.
+  telemetry: string
 
 ```
