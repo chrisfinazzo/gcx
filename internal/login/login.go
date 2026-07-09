@@ -325,11 +325,13 @@ func Run(ctx context.Context, opts *Options) (Result, error) {
 		case err == nil:
 			grafanaVersion = v
 
-		case errors.Is(err, context.Canceled):
+		case ctx.Err() != nil:
 			// Ctrl+C during connectivity validation is a clean cancellation, not
 			// a reason to prompt "save anyway" - propagate it so it exits via the
-			// context.Canceled fast-path.
-			return Result{}, err
+			// context.Canceled fast-path. Check ctx directly rather than the
+			// error chain: client-go's discovery aggregates per-group failures
+			// into an error with no Unwrap, hiding the cancellation.
+			return Result{}, ctx.Err()
 
 		case errors.As(err, &capErr):
 			// The Cloud Access Policy (CAP) token is optional: its absence does

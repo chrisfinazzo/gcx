@@ -366,9 +366,6 @@ func checkCmd(configOpts *Options) *cobra.Command {
 					return err
 				}
 				if err := checkContext(cmd, cfg, gCtx, configOpts.ConfigSource()); err != nil {
-					if errors.Is(err, context.Canceled) {
-						return err
-					}
 					checkErr = err
 				}
 			}
@@ -406,7 +403,15 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	cmd.Println(cmdio.Yellow(title))
 	cmd.Println(cmdio.Yellow(strings.Repeat("=", titleLen)))
 
+	// Cancellation guards below check cmd.Context() directly instead of the
+	// returned error's chain: client-go's discovery aggregates per-group
+	// failures into an error with no Unwrap, and validateNamespace replaces
+	// the discovery error entirely, so context.Canceled is not always
+	// reachable via errors.Is.
 	if err := gCtx.Validate(cmd.Context()); err != nil {
+		if ctxErr := cmd.Context().Err(); ctxErr != nil {
+			return ctxErr
+		}
 		cmdio.Error(stdout, "Configuration: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Connectivity: %s", cmdio.Yellow("skipped"))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")
@@ -437,14 +442,10 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 	restCfg.WireTokenPersistence(cmd.Context(), source, gCtx.Name, cfg.Sources)
 
-	err = runWithContext(cmd.Context(), func() error {
-		_, err := discovery.NewDefaultRegistry(cmd.Context(), restCfg)
-		return err
-	})
-	if errors.Is(err, context.Canceled) {
-		return err
-	}
-	if err != nil {
+	if _, err := discovery.NewDefaultRegistry(cmd.Context(), restCfg); err != nil {
+		if ctxErr := cmd.Context().Err(); ctxErr != nil {
+			return ctxErr
+		}
 		cmdio.Error(stdout, "Connectivity: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")
 		printSuggestions(err)
@@ -454,10 +455,10 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	cmdio.Success(stdout, "Connectivity: %s", cmdio.Green("online"))
 
 	version, raw, err := grafana.GetVersion(cmd.Context(), gCtx)
-	if errors.Is(err, context.Canceled) {
-		return err
-	}
 	if err != nil {
+		if ctxErr := cmd.Context().Err(); ctxErr != nil {
+			return ctxErr
+		}
 		cmdio.Error(stdout, "Grafana version: %s", cmdio.Red(summarizeError(err))+"\n")
 		return nil
 	}
@@ -479,26 +480,6 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	}
 
 	return nil
-}
-
-// runWithContext runs fn in a goroutine and returns as soon as ctx is
-// cancelled, even if fn is still blocked. The connectivity check relies on
-// client-go discovery, whose HTTP calls run on their own internal context and
-// don't observe cancellation - without this a Ctrl+C during `config check`
-// would hang until the client-go request timeout (32s) expired. The abandoned
-// goroutine is reclaimed when the process exits.
-func runWithContext(ctx context.Context, fn func() error) error {
-	done := make(chan error, 1)
-	go func() {
-		done <- fn()
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-done:
-		return err
-	}
 }
 
 func useContextCmd(configOpts *Options) *cobra.Command {
