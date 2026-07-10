@@ -16,10 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// maxConcurrentListRequests bounds the per-resource-type fan-out in Pull (one
-// List/Get per filter), matching the fan-out cap used elsewhere in the resources
-// pipeline.
-const maxConcurrentListRequests = 10
+// defaultMaxConcurrentListRequests bounds the per-resource-type fan-out in Pull
+// (one List/Get per filter) by default, matching the fan-out cap used elsewhere
+// in the resources pipeline. Override via WithMaxConcurrentListRequests.
+const defaultMaxConcurrentListRequests = 10
 
 // PullClient is a client that can pull resources from Grafana.
 type PullClient interface {
@@ -43,26 +43,30 @@ type PullRegistry interface {
 
 // Puller is a command that pulls resources from Grafana.
 type Puller struct {
-	client   PullClient
-	registry PullRegistry
+	client                    PullClient
+	registry                  PullRegistry
+	maxConcurrentListRequests int
 }
 
-// NewDefaultPuller creates a new Puller.
-// It uses a ResourceClientRouter that delegates to provider adapters for provider-backed
-// resource types, and falls back to the default versioned dynamic client for native resources.
-func NewDefaultPuller(ctx context.Context, restConfig config.NamespacedRESTConfig) (*Puller, error) {
-	registry, err := discovery.NewDefaultRegistry(ctx, restConfig)
-	if err != nil {
-		return nil, err
-	}
+// PullerOption configures a Puller.
+type PullerOption func(*Puller)
 
-	return NewDefaultPullerWithRegistry(restConfig, registry)
+// WithMaxConcurrentListRequests overrides the default fan-out cap (10) used by
+// Pull to bound concurrent per-resource-type List/Get requests.
+func WithMaxConcurrentListRequests(n int) PullerOption {
+	return func(p *Puller) {
+		p.maxConcurrentListRequests = n
+	}
 }
 
 // NewDefaultPullerWithRegistry creates a Puller reusing an already-built discovery
 // registry, avoiding a redundant discovery index build + adapter.RegisterAll when
 // the caller has already constructed one.
-func NewDefaultPullerWithRegistry(restConfig config.NamespacedRESTConfig, registry *discovery.Registry) (*Puller, error) {
+// It uses a ResourceClientRouter that delegates to provider adapters for provider-backed
+// resource types, and falls back to the default versioned dynamic client for native resources.
+func NewDefaultPullerWithRegistry(
+	restConfig config.NamespacedRESTConfig, registry *discovery.Registry, opts ...PullerOption,
+) (*Puller, error) {
 	dynamicClient, err := dynamic.NewDefaultVersionedClient(restConfig)
 	if err != nil {
 		return nil, err
@@ -70,15 +74,22 @@ func NewDefaultPullerWithRegistry(restConfig config.NamespacedRESTConfig, regist
 
 	router := buildRouter(dynamicClient, registry)
 
-	return NewPuller(router, registry), nil
+	return NewPuller(router, registry, opts...), nil
 }
 
 // NewPuller creates a new Puller.
-func NewPuller(client PullClient, registry PullRegistry) *Puller {
-	return &Puller{
-		client:   client,
-		registry: registry,
+func NewPuller(client PullClient, registry PullRegistry, opts ...PullerOption) *Puller {
+	p := &Puller{
+		client:                    client,
+		registry:                  registry,
+		maxConcurrentListRequests: defaultMaxConcurrentListRequests,
 	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
 }
 
 // PullRequest is a request for pulling resources from Grafana.
@@ -127,7 +138,7 @@ func (p *Puller) Pull(ctx context.Context, req PullRequest) (*OperationSummary, 
 	logger.Debug("Pulling resources")
 
 	errg, ctx := errgroup.WithContext(ctx)
-	errg.SetLimit(maxConcurrentListRequests)
+	errg.SetLimit(p.maxConcurrentListRequests)
 	partialRes := make([][]unstructured.Unstructured, len(filters))
 
 	for idx, filt := range filters {
