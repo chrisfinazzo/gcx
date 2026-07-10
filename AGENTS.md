@@ -167,6 +167,7 @@ internal/
 ├── logs/        slog/klog integration
 ├── notifier/    Update notifications (skills + gcx version checks; XDG state, throttling, message rendering — wired into root PersistentPostRun)
 ├── skills/      Portable Agent Skills installer primitives (BundledSkillNames, Install, Update — extracted from cmd/gcx/skills)
+├── shellquote/  POSIX shell argv quoting shared by did-you-mean corrections, pagination follow-up commands, and the instrumentation helm formatter
 ├── strcase/     String case conversion (snake_case, kebab-case, PascalCase)
 ├── suggest/     Fuzzy matcher for "did you mean" suggestions on unknown commands/flags
 ├── telemetry/   Anonymous usage stats library (wide-event model, GCX_TELEMETRY/DO_NOT_TRACK mode resolution, device ID, CI detection — not yet wired into the CLI)
