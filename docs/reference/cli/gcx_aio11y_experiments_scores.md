@@ -3,7 +3,7 @@
 List scores produced by an experiment.
 
 ```
-gcx aio11y experiments scores <run-id> [flags]
+gcx aio11y experiments scores <experiment-id> [flags]
 ```
 
 ### Options

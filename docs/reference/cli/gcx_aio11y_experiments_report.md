@@ -3,7 +3,7 @@
 Fetch the aggregate report for an experiment.
 
 ```
-gcx aio11y experiments report <run-id> [flags]
+gcx aio11y experiments report <experiment-id> [flags]
 ```
 
 ### Options

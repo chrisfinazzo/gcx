@@ -148,8 +148,8 @@ func (o *getOpts) setup(flags *pflag.FlagSet) {
 func newGetCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &getOpts{}
 	cmd := &cobra.Command{
-		Use:   "get <run-id>",
-		Short: "Get a single experiment by run ID.",
+		Use:   "get <experiment-id>",
+		Short: "Get a single experiment by ID.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
@@ -264,7 +264,7 @@ func (o *updateOpts) setup(flags *pflag.FlagSet) {
 func newUpdateCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &updateOpts{}
 	cmd := &cobra.Command{
-		Use:   "update <run-id>",
+		Use:   "update <experiment-id>",
 		Short: "Patch an experiment's mutable fields.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -321,7 +321,7 @@ func (o *cancelOpts) setup(flags *pflag.FlagSet) {
 func newCancelCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &cancelOpts{}
 	cmd := &cobra.Command{
-		Use:   "cancel <run-id>",
+		Use:   "cancel <experiment-id>",
 		Short: "Cancel a running experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -367,7 +367,7 @@ func (o *scoresOpts) setup(flags *pflag.FlagSet) {
 func newScoresCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &scoresOpts{}
 	cmd := &cobra.Command{
-		Use:   "scores <run-id>",
+		Use:   "scores <experiment-id>",
 		Short: "List scores produced by an experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -405,7 +405,7 @@ func (o *reportOpts) setup(flags *pflag.FlagSet) {
 func newReportCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &reportOpts{}
 	cmd := &cobra.Command{
-		Use:   "report <run-id>",
+		Use:   "report <experiment-id>",
 		Short: "Fetch the aggregate report for an experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

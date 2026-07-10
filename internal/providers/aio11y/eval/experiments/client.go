@@ -149,7 +149,7 @@ func (c *Client) DeleteCase(ctx context.Context, suiteID, version, testCaseID st
 		fmt.Errorf("%s: %w", testCaseID, ErrNotFound), http.StatusOK, http.StatusNoContent)
 }
 
-// Get returns a single experiment by run ID.
+// Get returns a single experiment by ID.
 func (c *Client) Get(ctx context.Context, runID string) (*Experiment, error) {
 	exp, err := aio11yhttp.DoJSONNotFound[any, Experiment](ctx, c.base, http.MethodGet, basePath+"/"+url.PathEscape(runID), nil,
 		fmt.Errorf("%s: %w", runID, ErrNotFound), http.StatusOK)

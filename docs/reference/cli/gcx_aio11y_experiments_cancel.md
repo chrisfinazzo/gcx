@@ -3,7 +3,7 @@
 Cancel a running experiment.
 
 ```
-gcx aio11y experiments cancel <run-id> [flags]
+gcx aio11y experiments cancel <experiment-id> [flags]
 ```
 
 ### Options

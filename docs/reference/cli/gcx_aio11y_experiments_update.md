@@ -3,7 +3,7 @@
 Patch an experiment's mutable fields.
 
 ```
-gcx aio11y experiments update <run-id> [flags]
+gcx aio11y experiments update <experiment-id> [flags]
 ```
 
 ### Options

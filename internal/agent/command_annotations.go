@@ -556,8 +556,8 @@ var commandAnnotations = map[string]annotation{
 	"gcx aio11y experiments create": {Cost: "small"},
 	"gcx aio11y experiments update": {Cost: "small"},
 	"gcx aio11y experiments cancel": {Cost: "small"},
-	"gcx aio11y experiments scores": {Cost: "medium", Hint: "<run-id> --limit 50 -o json"},
-	"gcx aio11y experiments report": {Cost: "medium", Hint: "<run-id> -o json"},
+	"gcx aio11y experiments scores": {Cost: "medium", Hint: "<experiment-id> --limit 50 -o json"},
+	"gcx aio11y experiments report": {Cost: "medium", Hint: "<experiment-id> -o json"},
 	"gcx aio11y experiments list-trials": {
 		Cost: "small",
 		Hint: "<experiment-id> -o json",

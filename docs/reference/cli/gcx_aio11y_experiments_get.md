@@ -1,9 +1,9 @@
 ## gcx aio11y experiments get
 
-Get a single experiment by run ID.
+Get a single experiment by ID.
 
 ```
-gcx aio11y experiments get <run-id> [flags]
+gcx aio11y experiments get <experiment-id> [flags]
 ```
 
 ### Options

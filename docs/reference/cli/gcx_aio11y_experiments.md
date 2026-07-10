@@ -25,7 +25,7 @@ Manage eval experiment runs.
 * [gcx aio11y](gcx_aio11y.md)	 - Manage Grafana AI Observability resources
 * [gcx aio11y experiments cancel](gcx_aio11y_experiments_cancel.md)	 - Cancel a running experiment.
 * [gcx aio11y experiments create](gcx_aio11y_experiments_create.md)	 - Create a new experiment from a JSON or YAML file.
-* [gcx aio11y experiments get](gcx_aio11y_experiments_get.md)	 - Get a single experiment by run ID.
+* [gcx aio11y experiments get](gcx_aio11y_experiments_get.md)	 - Get a single experiment by ID.
 * [gcx aio11y experiments list](gcx_aio11y_experiments_list.md)	 - List experiments.
 * [gcx aio11y experiments list-trials](gcx_aio11y_experiments_list-trials.md)	 - List test case trials for an experiment.
 * [gcx aio11y experiments report](gcx_aio11y_experiments_report.md)	 - Fetch the aggregate report for an experiment.
