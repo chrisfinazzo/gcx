@@ -15,6 +15,8 @@ import (
 // fakeGadget is a small self-contained domain type used to exercise the
 // declarative Resource[T]/NewProvider capability seam, independent of any
 // real provider (SLO, OnCall, ...).
+//
+//nolint:recvcheck // Mixed receivers are intentional for Go generics TypedCRUD compatibility.
 type fakeGadget struct {
 	Name  string `json:"name"`
 	Value string `json:"value,omitempty"`
