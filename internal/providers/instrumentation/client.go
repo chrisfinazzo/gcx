@@ -261,11 +261,7 @@ func (c *Client) GetAppInstrumentation(ctx context.Context, clusterName string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GetAppInstrumentation: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathGetAppInstrumentation,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return nil, fleet.StatusError("GetAppInstrumentation", pathGetAppInstrumentation, resp)
 	}
 
 	var envelope getAppResponse
@@ -324,11 +320,7 @@ func (c *Client) SetAppInstrumentation(ctx context.Context, clusterName string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("SetAppInstrumentation: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathSetAppInstrumentation,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return fleet.StatusError("SetAppInstrumentation", pathSetAppInstrumentation, resp)
 	}
 	return nil
 }
@@ -347,11 +339,7 @@ func (c *Client) GetK8SInstrumentation(ctx context.Context, clusterName string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GetK8SInstrumentation: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathGetK8SInstrumentation,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return nil, fleet.StatusError("GetK8SInstrumentation", pathGetK8SInstrumentation, resp)
 	}
 
 	var envelope getK8SResponse
@@ -396,11 +384,7 @@ func (c *Client) SetK8SInstrumentation(ctx context.Context, clusterName string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("SetK8SInstrumentation: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathSetK8SInstrumentation,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return fleet.StatusError("SetK8SInstrumentation", pathSetK8SInstrumentation, resp)
 	}
 	return nil
 }
@@ -416,11 +400,7 @@ func (c *Client) SetupK8sDiscovery(ctx context.Context, urls BackendURLs) error 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("SetupK8sDiscovery: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathSetupK8sDiscovery,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return fleet.StatusError("SetupK8sDiscovery", pathSetupK8sDiscovery, resp)
 	}
 	return nil
 }
@@ -436,11 +416,7 @@ func (c *Client) RunK8sDiscovery(ctx context.Context) (*RunK8sDiscoveryResponse,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("RunK8sDiscovery: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathRunK8sDiscovery,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return nil, fleet.StatusError("RunK8sDiscovery", pathRunK8sDiscovery, resp)
 	}
 
 	var wire wireRunK8sDiscoveryResponse
@@ -476,11 +452,7 @@ func (c *Client) RunK8sMonitoring(ctx context.Context) (*RunK8sMonitoringRespons
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("RunK8sMonitoring: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathRunK8sMonitoring,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return nil, fleet.StatusError("RunK8sMonitoring", pathRunK8sMonitoring, resp)
 	}
 
 	var wire wireRunK8sMonitoringResponse
@@ -525,11 +497,7 @@ func (c *Client) ListPipelines(ctx context.Context) ([]Pipeline, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ListPipelines: %w", &fleet.HTTPError{
-			Status: resp.StatusCode,
-			Path:   pathListPipelines,
-			Body:   fleet.ReadErrorBody(resp),
-		})
+		return nil, fleet.StatusError("ListPipelines", pathListPipelines, resp)
 	}
 
 	var wire wireListPipelinesResponse

@@ -14,24 +14,19 @@ import (
 )
 
 const (
-	// collectorAppProxyBase is the Grafana app plugin-proxy prefix for the
-	// grafana-collector-app plugin. It is reached at cfg.Host with the Grafana
-	// bearer credential injected by the k8s round-tripper. The collector-app is a
-	// frontend-only plugin (it ships no backend), so it is reached through the app
-	// plugin-proxy path rather than the backend-plugin
-	// /api/plugins/<id>/resources/... endpoint, which would not resolve for it.
+	// collectorAppProxyBase is the app plugin-proxy prefix for grafana-collector-app.
+	// The plugin is frontend-only (no backend), so it is reached via the app
+	// plugin-proxy path, not the backend-plugin /api/plugins/<id>/resources/... route.
 	collectorAppProxyBase = "/api/plugin-proxy/grafana-collector-app"
 
-	// fleetManagementAPIPath is the collector-app proxy route prefix that forwards
-	// to the Fleet Management API. The Connect service/method path is appended to
-	// it unchanged, and the proxy injects the FM credential and the
-	// X-Prom-*/X-Scope-OrgID headers server-side.
+	// fleetManagementAPIPath forwards to the Fleet Management API. The Connect
+	// service/method path is appended unchanged; the proxy injects the FM
+	// credential and the X-Prom-*/X-Scope-OrgID headers server-side.
 	fleetManagementAPIPath = collectorAppProxyBase + "/fleet-management-api"
 
-	// instanceMetadataPath is the Viewer-role collector-app proxy route that
-	// returns the caller's Grafana Cloud stack instance metadata (proxying GCOM's
-	// /api/instances/{stackId}). The plugin injects the stack ID, so gcx sends no
-	// slug.
+	// instanceMetadataPath is the Viewer-role route returning the caller's stack
+	// instance metadata (proxying GCOM's /api/instances/{stackId}; the plugin
+	// injects the stack ID).
 	instanceMetadataPath = collectorAppProxyBase + "/grafanacom-api/instances/"
 )
 

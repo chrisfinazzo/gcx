@@ -187,44 +187,16 @@ func TestClient_FetchInstanceMetadata_ErrorStatus(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, httpErr.Status)
 }
 
-// TestHTTPError_RoleHint asserts that proxy auth/RBAC statuses map to actionable
-// messages distinguishing a missing-role denial from an FM request rejection
-// (FR-016).
-func TestHTTPError_RoleHint(t *testing.T) {
-	tests := []struct {
-		name        string
-		status      int
-		wantContain string
-		wantAbsent  string
-	}{
-		{
-			name:        "403 names the Grafana Admin role requirement",
-			status:      http.StatusForbidden,
-			wantContain: "Grafana Admin",
-		},
-		{
-			name:        "401 points to re-authentication",
-			status:      http.StatusUnauthorized,
-			wantContain: "gcx login",
-		},
-		{
-			name:       "FM rejection (400) carries no role hint",
-			status:     http.StatusBadRequest,
-			wantAbsent: "Grafana Admin",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := &fleet.HTTPError{Status: tt.status, Path: "/x", Body: "boom"}
-			msg := err.Error()
-			if tt.wantContain != "" {
-				assert.Contains(t, msg, tt.wantContain)
-			}
-			if tt.wantAbsent != "" {
-				assert.NotContains(t, msg, tt.wantAbsent)
-			}
-		})
-	}
+// TestHTTPError_Error asserts Error() reports only the raw HTTP diagnostic.
+// Role/auth guidance is added once by the cmd/gcx/fail converter (as
+// DetailedError suggestions), not appended here, so it must be absent from the
+// error string to avoid duplicate emission.
+func TestHTTPError_Error(t *testing.T) {
+	err := &fleet.HTTPError{Status: http.StatusForbidden, Path: "/x", Body: "boom"}
+	msg := err.Error()
+	assert.Equal(t, "fleet: HTTP 403 from /x: boom", msg)
+	assert.NotContains(t, msg, "Grafana Admin")
+	assert.NotContains(t, msg, "gcx login")
 }
 
 func TestReadErrorBody(t *testing.T) {
