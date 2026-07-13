@@ -16,35 +16,11 @@ it to a first-class `TypedCRUD[DataSource]` adapter (with an opt-in
 `SecureCarrier` block), and that adapter rides one shared dual-mode transport
 whose served-vs-REST decision is made once per stack.
 
-```
-gcx datasources *          gcx resources get/pull/push/delete datasources
-        │                          │
-        └────────────┬─────────────┘
-                     ▼
-  discovery ingestion (RegistryIndex.Update / FilterDiscoveryResults)
-    ├─ per-plugin *.datasource.grafana.app groups ─COLLAPSE─▶ canonical descriptor
-    └─ malformed empty-Kind <type>/v0alpha1 groups ─DROP           (scoped: IsDatasourceGroup)
-                     ▼
-  LookupPreferredPerGroup → ONE canonical datasource.grafana.app/v0alpha1 DataSource
-                     ▼
-  router EXACT-GVK HIT → adapter.TypedCRUD[DataSource]{...}.AsAdapter()
-    ├─ ToUnstructured  → emit apiVersion/kind/metadata/secure/spec   (SecureCarrier)
-    └─ fromUnstructured → consume secure {create|fromEnv|fromFile}
-                     ▼
-  ONE shared dual-mode transport (obtained identically by both surfaces)
-    served-ness probed once via discovery.NewDefaultRegistry
-    (~/.cache/gcx/discovery, 10-min TTL — reused, no new invalidation)
-        │
-        ├─ served? ─yes─▶ dynamic.NewDefaultNamespacedClient
-        │                   List   = enumerate served per-plugin GVRs + merge   (FR-006)
-        │                   Get    = UID→plugin via discovery index             (FR-007)
-        │                   Update = fetch resourceVersion, apply, surface 409  (FR-009)
-        │                   Health = datasource health subresource (ported)     (FR-010)
-        │                   errors: ParseStatusError → datasources.APIError     (FR-008)
-        │
-        └─ not served / Option-2 demote (any served-group 403/404/5xx)          (FR-014)
-                        ─▶ legacy REST /api/datasources  (Client — retained)
-```
+Full target diagram: spec.md §Target Structure. Stage → requirement tracing:
+discovery-collapse + malformed-group drop (FR-011, FR-012), typed adapter with
+`SecureCarrier` round-trip (FR-001..005), dynamic-client List/Get/Update/Health
++ error normalization (FR-006..010), shared served-ness decision (FR-013),
+Option-2 demotion (FR-014).
 
 **Transport decision (uniform):** served-ness is one shared per-stack fact read
 from the cached discovery registry. On the served path, any group returning

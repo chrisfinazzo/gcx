@@ -72,21 +72,18 @@ gcx resources get/pull datasources
 The two paths make **different transport decisions on the same command**: the
 canonical adapter demotes to REST (50), while the per-plugin dynamic fan-out
 stays on k8s and hard-errors on the bigquery-500. This split is the defect.
-Evidence: verified-current-state.md (`api /apis` → 39 served groups, no bare
+Evidence (verified live, read-only): `api /apis` → 39 served groups, no bare
 canonical; `datasources list` → 50; `resources get` → 69 exit 1; `resources
-pull` → 6 malformed dirs exit 4).
+pull` → 6 malformed dirs exit 4.
 
-Two facts constrain the fix:
+Two facts constrain the fix (detail in ADR-021 §Context):
 
-1. **The app-platform serves per-plugin groups only.** No bare
-   `datasource.grafana.app/v0alpha1` collection exists on the Kubernetes API
-   (`IsDatasourceGroup` returns `("",false)` for the base group). The only
-   type-agnostic "all datasources" list is the legacy REST `/api/datasources`.
-2. **`TypedObject[T]` is spec-only** (`{TypeMeta, ObjectMeta, Spec T}`,
-   typed.go:47-52). Its round-trip reads/emits only `spec`, so the datasource
-   top-level `secure` block (a sibling of `spec`) cannot survive — which is
-   exactly why datasources are backed by a bespoke `datasourceAdapter` today
-   instead of `TypedCRUD`.
+1. **The app-platform serves per-plugin groups only** — no bare
+   `datasource.grafana.app/v0alpha1` collection; the only type-agnostic
+   "all datasources" list is the legacy REST `/api/datasources`.
+2. **`TypedObject[T]` is spec-only** (typed.go:47-52) — the top-level `secure`
+   block cannot survive its round-trip, which is why datasources are backed by
+   a bespoke `datasourceAdapter` today instead of `TypedCRUD`.
 
 ## Scope
 
@@ -504,8 +501,8 @@ surface; the read defects (raw unstructured output, 69-item mongrel, malformed
   → generic dynamic client = 19 objects, no dedup → 69-item mongrel, `pull` → 6
   malformed dirs). This is NOT an "adapter is unreachable / dead code" model —
   the canonical adapter IS reached and produces the REST-demoted set; the
-  per-plugin dynamic fan-out runs in parallel with no fallback. See
-  verified-current-state.md.
+  per-plugin dynamic fan-out runs in parallel with no fallback (see the
+  verified current-behavior diagram in the Problem Statement).
 - **[DEFERRED]** Correct ADR-021's Context to match the verified model (its
   "reads bypass the adapter, no fallback, generic dynamic client" phrasing reads
   as adapter-unreachable). ADR-021 is still `proposed`/uncommitted; the

@@ -42,11 +42,11 @@ Two verified facts constrain any fix:
    This is precisely why datasources are backed by a bespoke `datasourceAdapter`
    instead of `TypedCRUD` today.
 
-**Why now.** A prior spec (`docs/specs/refactor-datasources-pr-881-followups/`)
-was approved and then halted at build time: it assumed the adapter already
-mediated reads and declared the routing and fallback layers out of scope, so its
-output-parity invariants were unachievable and building it would have shipped a
-broken result (evidence in that directory's `findings.md`). Meanwhile the defects
+**Why now.** A prior spec (the PR-881 follow-ups remediation, superseded by this
+ADR and never merged) was approved and then halted at build time: it assumed the
+adapter already mediated reads and declared the routing and fallback layers out
+of scope, so its output-parity invariants were unachievable and building it
+would have shipped a broken result. Meanwhile the defects
 are live: `resources get datasources` returns raw unstructured objects and errors;
 `resources pull datasources` writes malformed `s.v0alpha1.*` directories and exits
 non-zero; and the object set diverges by surface (a smaller REST set versus a
@@ -182,8 +182,7 @@ recorded under Alternatives.
   summary to the canonical manifest — acceptable under the parity rule, but a
   documented behavior change.
 - **Follow-up:** resolve the RBAC-partial semantics internally (the flagged Option 2
-  above); empirically confirm the current bare-read canonical-fan-out behavior when
-  authoring the spec; rebuild the halted spec from this ADR via `/plan-spec`.
+  above).
 
 ## Alternatives considered
 
