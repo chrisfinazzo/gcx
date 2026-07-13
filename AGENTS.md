@@ -129,6 +129,7 @@ internal/
 ├── docs/        Canonical Grafana documentation URL registry (markdown links surfaced via DetailedError.DocsLink and agent llm_hints)
 ├── dashboards/  Dashboard Image Renderer client (PNG snapshots)
 ├── datasources/ Datasource HTTP client, DatasourceProvider interface + registry
+│   ├── azuremonitor/  Azure Monitor CLI commands (query, list-subscriptions, list-resource-groups, list-resources, list-metrics)
 │   ├── clickhouse/  ClickHouse datasource commands (query, list-tables, describe-table, explore)
 │   ├── cloudwatch/  CloudWatch CLI commands (query, list-namespaces, list-metrics, list-dimensions, list-regions, list-accounts)
 │   ├── influxdb/  InfluxDB datasource command layer (query, field-keys, measurements)
@@ -136,6 +137,7 @@ internal/
 ├── query/       Datasource query clients
 │   ├── dataframe/   Shared Grafana data frame wire types for unified datasource query API responses
 │   ├── grafanaquery/ Shared POST transport for `/apis/query.grafana.app/.../query` with `/api/ds/query` fallback
+│   ├── azuremonitor/ Azure Monitor HTTP query client (metric queries, ARM discovery via datasource resource proxy)
 │   ├── cloudwatch/  CloudWatch HTTP query client (metric queries, resource listing)
 │   ├── prometheus/  Prometheus HTTP query client
 │   ├── influxdb/    InfluxDB HTTP query client
