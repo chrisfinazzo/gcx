@@ -144,7 +144,7 @@ func TestResource_DryRunRouting(t *testing.T) {
 		assert.False(t, client.createCalled, "Create must not be called on dry-run")
 	})
 
-	t.Run("non-Validator client skips the mutation on dry-run with no error", func(t *testing.T) {
+	t.Run("non-Validator client skips the mutation on dry-run and reports it unverified", func(t *testing.T) {
 		client := &plainGadgetClient{}
 		res := adapter.Resource[fakeGadget]{
 			Group: "test.grafana.app", Version: "v1alpha1", Kind: "Gadget",
@@ -157,7 +157,7 @@ func TestResource_DryRunRouting(t *testing.T) {
 		_, err = ra.Create(t.Context(), buildGadgetUnstructured("g-1", "one"), metav1.CreateOptions{
 			DryRun: []string{metav1.DryRunAll},
 		})
-		require.NoError(t, err, "dry-run must not error when Validator is unimplemented")
+		require.ErrorIs(t, err, adapter.ErrDryRunUnverified, "dry-run without Validator must return ErrDryRunUnverified so the resource is reported as skipped")
 		assert.False(t, client.createCalled, "Create must not be called on dry-run")
 	})
 

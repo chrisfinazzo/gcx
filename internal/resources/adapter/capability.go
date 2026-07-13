@@ -37,7 +37,8 @@ type Deleter[T any] interface {
 // Validator is implemented by a Resource[T]'s client when it supports
 // server-side validation. When present, the adapter calls Validate instead
 // of Create/Update for `--dry-run` (and `resources validate`); when absent,
-// dry-run mutations are a no-op round-trip with no error — see
+// dry-run mutations skip the server call and return ErrDryRunUnverified so
+// the resource is reported as skipped, not falsely valid — see
 // typedAdapter.dryRunValidate in typed.go.
 type Validator[T any] interface {
 	Validate(ctx context.Context, items []*T) error
@@ -66,8 +67,8 @@ type capabilityMeta struct {
 // place in the codebase that performs a capability-interface assertion — see
 // docs/architecture/patterns.md §16 "Sanctioned Exception" for the ruling
 // that permits it. An unimplemented capability leaves its Fn nil, which
-// TypedCRUD already resolves to errors.ErrUnsupported (or a no-op dry-run
-// path for Validator) — no provider ever performs this assertion itself.
+// TypedCRUD already resolves to errors.ErrUnsupported (or the unverified
+// dry-run path for Validator) — no provider ever performs this assertion itself.
 func newCapabilityCRUD[T ResourceNamer](client any, meta capabilityMeta) *TypedCRUD[T] {
 	crud := &TypedCRUD[T]{
 		Descriptor:  meta.Descriptor,
