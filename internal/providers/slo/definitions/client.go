@@ -29,6 +29,17 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// Compile-time guards: the capability seam discovers these interfaces via
+// runtime type assertion, so a signature drift would otherwise silently
+// demote the verb to errors.ErrUnsupported.
+var (
+	_ adapter.Lister[Slo]  = (*Client)(nil)
+	_ adapter.Getter[Slo]  = (*Client)(nil)
+	_ adapter.Creator[Slo] = (*Client)(nil)
+	_ adapter.Updater[Slo] = (*Client)(nil)
+	_ adapter.Deleter[Slo] = (*Client)(nil)
+)
+
 // NewClient creates a new SLO definitions client.
 func NewClient(cfg config.NamespacedRESTConfig) (*Client, error) {
 	httpClient, err := rest.HTTPClientFor(&cfg.Config)
@@ -46,7 +57,7 @@ func NewClient(cfg config.NamespacedRESTConfig) (*Client, error) {
 // declarative adapter.Resource[Slo] registration (see resource_adapter.go).
 // Unlike NewClient, it reuses the pre-built ClientDeps.HTTP directly and
 // constructs no transport of its own (see docs/architecture/patterns.md §
-// Provider ConfigLoader; NC-007, AC-010).
+// Provider ConfigLoader).
 func newClientFromDeps(deps adapter.ClientDeps) *Client {
 	return &Client{
 		restConfig: config.NamespacedRESTConfig{
@@ -108,9 +119,7 @@ func (c *Client) Get(ctx context.Context, uuid string) (*Slo, error) {
 
 // Create creates a new SLO definition and returns the fully populated
 // resource (implements adapter.Creator[Slo]). The create endpoint responds
-// with only a UUID, so Create re-fetches the created SLO before returning —
-// moved verbatim from the registration-side closure this method replaces
-// (FR-020).
+// with only a UUID, so Create re-fetches the created SLO before returning.
 func (c *Client) Create(ctx context.Context, slo *Slo) (*Slo, error) {
 	resp, err := c.createRequest(ctx, slo)
 	if err != nil {
@@ -150,9 +159,7 @@ func (c *Client) createRequest(ctx context.Context, slo *Slo) (*SLOCreateRespons
 }
 
 // Update updates an existing SLO definition and returns the fully populated
-// resource, re-fetching it after the update (implements
-// adapter.Updater[Slo]) — moved verbatim from the registration-side closure
-// this method replaces (FR-020).
+// resource, re-fetching it after the update (implements adapter.Updater[Slo]).
 func (c *Client) Update(ctx context.Context, name string, slo *Slo) (*Slo, error) {
 	if err := c.updateRequest(ctx, name, slo); err != nil {
 		return nil, fmt.Errorf("failed to update SLO %q: %w", name, err)

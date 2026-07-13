@@ -422,7 +422,7 @@ with no nil-`Fn` plumbing and no provider-side flags:
 | `Creator[T]` | `Create(ctx, item *T) (*T, error)` | create |
 | `Updater[T]` | `Update(ctx, name string, item *T) (*T, error)` | update |
 | `Deleter[T]` | `Delete(ctx, name string) error` | delete |
-| `Validator[T]` | `Validate(ctx, items []*T) error` | `--dry-run` / `resources validate` (no-op if unimplemented, not an error) |
+| `Validator[T]` | `Validate(ctx, items []*T) error` | `--dry-run` / `resources validate` (if unimplemented, dry-run returns `ErrDryRunUnverified` and the resource is reported as skipped) |
 
 `NewClient` receives `adapter.ClientDeps{HTTP, BaseURL, Namespace}` — a
 pre-built, fully-configured `*http.Client` (logging, retry,
@@ -430,12 +430,9 @@ pre-built, fully-configured `*http.Client` (logging, retry,
 `deps.HTTP` directly; never construct competing transport (see Step 4b).
 
 Optional fields: `Singular`/`Plural` (override the derived names — set
-`Plural` explicitly for irregulars the naive pluralizer gets wrong),
-`Namespace` (override `ClientDeps.Namespace`), `Columns` (`adapter.Cols[T]`
-table columns; omit for the generic name/namespace/age table). For domain
-types identified by a plain string name or a numeric ID, embed
-`adapter.Named` or `adapter.IDNamed` instead of hand-writing
-`GetResourceName`/`SetResourceName`.
+`Plural` explicitly for irregulars the naive pluralizer gets wrong) and
+`Namespace` (override `ClientDeps.Namespace`). The domain type implements
+`GetResourceName`/`SetResourceName` itself (see `adapter.ResourceIdentity`).
 
 Reference: `internal/providers/slo/definitions/resource_adapter.go`
 (`SloResource()`, the declaration) and `client.go` (the capability-interface

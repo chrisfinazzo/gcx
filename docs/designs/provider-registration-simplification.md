@@ -12,6 +12,13 @@ bead: none
 **Status**: proposed
 **Supersedes**: none
 
+> **Implementation note (PR #931):** `Columns`/`adapter.Cols[T]` and the
+> embeddable `adapter.Named`/`IDNamed` identity helpers were deferred at
+> implementation time — nothing consumed them yet (table rendering is a
+> follow-up spec, and no numeric-ID provider has migrated). Examples below
+> that show them predate that deferral; domain types hand-write
+> `GetResourceName`/`SetResourceName` for now.
+
 ## Context
 
 Adding a new provider resource type to gcx requires a large amount of

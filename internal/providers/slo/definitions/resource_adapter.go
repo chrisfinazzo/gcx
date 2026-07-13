@@ -13,7 +13,7 @@ import (
 // StaticDescriptor returns the resource descriptor for SLO definitions. Its
 // Group/Version/Kind mirror SloResource()'s declaration below — kept as a
 // small standalone helper because NewTypedCRUD (used by the hand-written
-// commands.go, NC-004) needs a *adapter.TypedCRUD[Slo] rather than the
+// commands.go) needs a *adapter.TypedCRUD[Slo] rather than the
 // ResourceAdapter that SloResource()'s registration path builds.
 func StaticDescriptor() resources.Descriptor {
 	return resources.Descriptor{
@@ -31,10 +31,10 @@ func StaticDescriptor() resources.Descriptor {
 // adapter.NewProvider: identity (GVK), registration metadata, and client
 // constructor. Declaring NaturalKey folds in
 // RegisterNaturalKey(gvk, SpecFieldKey("name")) and declaring URLTemplate
-// folds in the deeplink registration — neither needs a separate init()
-// (FR-015). Schema and Example are derived from Slo/the value below rather
-// than hand-written (FR-013, contrast the old SloSchema()/SloExample()).
-// A function (not a package-level var) to avoid a mutable shared global.
+// folds in the deeplink registration — neither needs a separate init().
+// Schema and Example are derived from Slo/the value below rather than
+// hand-written. A function (not a package-level var) to avoid a mutable
+// shared global.
 func SloResource() adapter.Resource[Slo] {
 	return adapter.Resource[Slo]{
 		Group:   "slo.ext.grafana.app",
@@ -64,11 +64,10 @@ func SloResource() adapter.Resource[Slo] {
 }
 
 // newAdapterClient is SloResource's NewClient implementation. It builds the
-// SLO client directly from ClientDeps.HTTP, constructing no transport of
-// its own (NC-007, AC-010). The returned *Client implements Lister[Slo],
-// Getter[Slo], Creator[Slo], Updater[Slo], and Deleter[Slo], so the adapter
-// package's single audited capability seam (internal/resources/adapter's
-// capability.go) wires all five verbs.
+// SLO client directly from ClientDeps.HTTP, constructing no transport of its
+// own. The returned *Client implements the five capability interfaces (see
+// the compile-time guards in client.go), so the capability seam wires all
+// five verbs.
 func newAdapterClient(_ context.Context, deps adapter.ClientDeps) (any, error) {
 	return newClientFromDeps(deps), nil
 }
@@ -93,12 +92,11 @@ func newTypedCRUD(client *Client, cfg internalconfig.NamespacedRESTConfig) *adap
 }
 
 // NewTypedCRUD creates a TypedCRUD for SLO definitions using the provided
-// loader. This is the hand-written commands.go's (NC-004, frozen) entry
-// point for the `gcx slo definitions` command tree — a separate call site
-// from the `gcx resources` pipeline built via SloResource()/adapter.NewProvider
-// in provider.go, but both are backed by the same Client capability methods
-// (List/Get/Create/Update/Delete), so they return equivalent data (AC-001,
-// AC-019).
+// loader. This is the hand-written commands.go's entry point for the
+// `gcx slo definitions` command tree — a separate call site from the
+// `gcx resources` pipeline built via SloResource()/adapter.NewProvider in
+// provider.go, but both are backed by the same Client capability methods,
+// so they return equivalent data.
 // Returns both the CRUD instance and the config for additional operations
 // like Prometheus queries.
 func NewTypedCRUD(ctx context.Context, loader GrafanaConfigLoader) (*adapter.TypedCRUD[Slo], internalconfig.NamespacedRESTConfig, error) {

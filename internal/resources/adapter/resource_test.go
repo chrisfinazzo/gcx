@@ -16,10 +16,12 @@ import (
 // declarative Resource[T]/NewProvider capability seam, independent of any
 // real provider (SLO, OnCall, ...).
 type fakeGadget struct {
-	adapter.Named
-
+	Name  string `json:"name"`
 	Value string `json:"value,omitempty"`
 }
+
+func (g fakeGadget) GetResourceName() string      { return g.Name }
+func (g *fakeGadget) SetResourceName(name string) { g.Name = name }
 
 // fakeDeps is a stub DepsLoader for tests that don't care about real config.
 func fakeDeps(context.Context) (adapter.ClientDeps, error) {
@@ -61,7 +63,7 @@ func (c *readOnlyGadgetClient) Get(_ context.Context, name string) (*fakeGadget,
 }
 
 func TestResource_UnsupportedVerbsResolveToErrUnsupported(t *testing.T) {
-	client := &readOnlyGadgetClient{items: []fakeGadget{{Named: adapter.Named{Name: "g-1"}, Value: "one"}}}
+	client := &readOnlyGadgetClient{items: []fakeGadget{{Name: "g-1", Value: "one"}}}
 
 	res := adapter.Resource[fakeGadget]{
 		Group: "test.grafana.app", Version: "v1alpha1", Kind: "Gadget",
@@ -96,7 +98,7 @@ func TestResource_UnsupportedVerbsResolveToErrUnsupported(t *testing.T) {
 	require.ErrorIs(t, err, errors.ErrUnsupported)
 }
 
-// --- AC-004: dry-run routes to Validator[T] when implemented, else no-op ---
+// --- AC-004: dry-run routes to Validator[T] when implemented, else unverified skip ---
 
 // validatingGadgetClient implements Creator[fakeGadget] and
 // Validator[fakeGadget], tracking which one was actually invoked.
@@ -236,7 +238,7 @@ func TestResource_SchemaAndExampleAreDerived(t *testing.T) {
 	client := &readOnlyGadgetClient{}
 	res := adapter.Resource[fakeGadget]{
 		Group: "test.grafana.app", Version: "v1alpha1", Kind: "Gadget",
-		Example:   fakeGadget{Named: adapter.Named{Name: "my-gadget"}, Value: "demo"},
+		Example:   fakeGadget{Name: "my-gadget", Value: "demo"},
 		NewClient: func(context.Context, adapter.ClientDeps) (any, error) { return client, nil },
 	}
 

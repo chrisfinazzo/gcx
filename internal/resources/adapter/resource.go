@@ -34,29 +34,12 @@ type ClientDeps struct {
 // DepsLoader lazily resolves ClientDeps for one provider's resources — e.g.
 // by loading REST config via providers.ConfigLoader and building the HTTP
 // client via rest.HTTPClientFor, exactly like every hand-written provider
-// command already does. adapter cannot import internal/providers (providers
-// already imports adapter for Registration/TypedRegistrations, so the
-// reverse import would cycle), so every provider supplies its own loader
-// closure to NewProvider instead of adapter loading config itself.
-// NewProvider invokes it lazily, once per resource's Factory call, mirroring
-// BuildRegistration's loadClient parameter.
+// command already does. Each provider supplies its own loader closure to
+// NewProvider because adapter cannot import internal/providers (see
+// ConfigKey's doc comment). NewProvider invokes it lazily, once per
+// resource's Factory call, mirroring BuildRegistration's loadClient
+// parameter.
 type DepsLoader func(ctx context.Context) (ClientDeps, error)
-
-// Col declares one table column for a resource type's list output: Header is
-// the column title, Value extracts the cell text from a domain object.
-type Col[T any] struct {
-	Header string
-	Value  func(T) string
-}
-
-// Cols declares a resource type's table columns. A nil/empty Cols yields the
-// generic name/namespace/age table.
-//
-// NOTE: table rendering itself is wired up by the standard-verb command
-// auto-build follow-up spec (out of scope for this declarative registration
-// layer); Cols is declared now so Resource[T] authors can express column
-// intent today, ahead of that follow-up landing.
-type Cols[T any] []Col[T]
 
 // Declaration is the non-generic façade every Resource[T] satisfies (via its
 // unexported registration method), letting NewProvider accept resources of
@@ -105,9 +88,6 @@ type Resource[T ResourceNamer] struct {
 	// Registration.Example / ResourceAdapter.Example() — no hand-written
 	// example manifest required.
 	Example T
-
-	// Columns optionally declares table columns for this type's list output.
-	Columns Cols[T]
 
 	// NewClient constructs this type's provider-specific REST client from
 	// pre-built ClientDeps. The returned value is type-asserted against the
@@ -195,7 +175,7 @@ func deriveSingular(kind string) string {
 // preceded by a consonant becomes "ies"; a trailing s/x/z/ch/sh takes "es";
 // everything else takes a plain "s". This covers the common cases (including
 // "EscalationPolicy" -> "escalationpolicies") but mishandles true irregulars
-// — override via Resource.Plural for those (see AC-011).
+// — override via Resource.Plural for those.
 func derivePlural(singular string) string {
 	switch {
 	case strings.HasSuffix(singular, "y") && len(singular) > 1 && !isVowel(singular[len(singular)-2]):

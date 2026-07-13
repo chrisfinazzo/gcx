@@ -40,12 +40,12 @@ This spec builds on the already-implemented ADR-008 foundation (`ResourceIdentit
 
 **Step 2 — declarative model (layered on Step 1):**
 
-- Add `adapter.Resource[T]` with fields: `Group`/`Version`/`Kind`, `StripFields`, `NaturalKey`, `URLTemplate`, `Example`, `Columns` (`adapter.Cols[T]`), and `NewClient`.
+- Add `adapter.Resource[T]` with fields: `Group`/`Version`/`Kind`, `StripFields`, `NaturalKey`, `URLTemplate`, `Example`, and `NewClient`. (`Columns`/`adapter.Cols[T]` deferred to the standard-verb command auto-build follow-up — no consumer in this change.)
 - Add `adapter.ClientDeps` carrying a pre-built `*http.Client` (`HTTP`), `BaseURL`, and `Namespace`.
 - Add `adapter.ListOptions` (`Limit int64`, with room for label/field filters).
-- Add `adapter.Cols[T]` for optional table columns.
+- ~~Add `adapter.Cols[T]` for optional table columns.~~ Deferred: no renderer consumes it in this change.
 - Add the capability interfaces `Lister[T]`, `Getter[T]`, `Creator[T]`, `Updater[T]`, `Deleter[T]`, `Validator[T]`, with "unsatisfied interface ⇒ unsupported verb" semantics.
-- Add embeddable identity helpers `adapter.Named` (string name) and `adapter.IDNamed` (numeric slug reusing `slug.go`).
+- ~~Add embeddable identity helpers `adapter.Named` (string name) and `adapter.IDNamed` (numeric slug reusing `slug.go`).~~ Deferred until a migration needs them: domain types keep hand-written `GetResourceName`/`SetResourceName`.
 - Add `adapter.NewProvider(name, shortDesc, resources...)` returning a `providers.Provider`.
 - Auto-derive `Schema`, `GVK`, `Singular`/`Plural` (via `strcase` from `Kind`), and `Namespace` (from loaded config), each with an override hook (notably `Plural` for irregular plurals).
 - Wire CRUD by type-asserting the `NewClient` return value against the capability interfaces at exactly ONE audited seam inside the `adapter` package.

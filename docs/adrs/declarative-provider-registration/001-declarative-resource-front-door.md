@@ -79,7 +79,6 @@ type Resource[T ResourceNamer] struct {
     NaturalKey            string          // folds in RegisterNaturalKey — no separate init()
     URLTemplate           string          // folds in deeplink registration — no separate init()
     Example               T               // typed value; wrapped + marshaled automatically
-    Columns               Cols[T]         // optional; omit for the generic name/namespace/age table
     NewClient             func(ctx context.Context, deps ClientDeps) (any, error)
 }
 ```
@@ -192,10 +191,10 @@ Assertion", for the full ruling and grep-verifiable boundary.
 - **Naive plural derivation.** `derivePlural` handles common English suffix
   rules (`y`→`ies`, `s`/`x`/`z`/`ch`/`sh`→`es`, else `+s`) but mishandles true
   irregulars; those types must set `Resource.Plural` explicitly.
-- **Numeric-ID identity is only lightly covered.** `adapter.IDNamed`
-  (composing a slug-id name via `internal/resources/adapter/slug.go`) is
-  provided, but whether it is sufficient for Fleet/Synth-shaped identity
-  needs is deferred until those providers actually migrate.
+- **Numeric-ID identity is not covered yet.** An embeddable slug-id identity
+  helper (composing a name via `internal/resources/adapter/slug.go`) is
+  deferred until a numeric-ID provider (Fleet/Synth-shaped) actually
+  migrates and defines the requirement.
 
 ## Alternatives considered
 

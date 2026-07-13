@@ -503,8 +503,9 @@ rule above, narrowly scoped:
   `errors.ErrUnsupported`" semantics. No new dispatch or serialization
   mechanism is introduced, and no second seam may be added anywhere else.
 - An unimplemented verb resolves to `errors.ErrUnsupported` (TypedCRUD's
-  existing behavior, unchanged); an unimplemented `Validator[T]` resolves to
-  a no-op dry-run (round-trip only, no error), not an error.
+  existing behavior, unchanged); an unimplemented `Validator[T]` makes
+  dry-run mutations skip the server call and return `ErrDryRunUnverified`,
+  so the resource is reported as skipped rather than falsely valid.
 
 This qualifies Pattern 18's "No `any` type erasure — all 16 types use
 concrete generics" claim below: that claim describes the **hand-written,
