@@ -132,6 +132,7 @@ internal/
 │   ├── clickhouse/  ClickHouse datasource commands (query, list-tables, describe-table, explore)
 │   ├── cloudwatch/  CloudWatch CLI commands (query, list-namespaces, list-metrics, list-dimensions, list-regions, list-accounts)
 │   ├── influxdb/  InfluxDB datasource command layer (query, field-keys, measurements)
+│   ├── postgres/  PostgreSQL datasource commands (query, list-tables, describe-table)
 │   └── query/   Shared query CLI utils (time parsing, codecs, opts, resolve helpers — used by signal providers and GenericCmd)
 ├── query/       Datasource query clients
 │   ├── dataframe/   Shared Grafana data frame wire types for unified datasource query API responses
@@ -139,6 +140,7 @@ internal/
 │   ├── cloudwatch/  CloudWatch HTTP query client (metric queries, resource listing)
 │   ├── prometheus/  Prometheus HTTP query client
 │   ├── influxdb/    InfluxDB HTTP query client
+│   ├── postgres/    PostgreSQL HTTP query client (raw SQL via unified query API)
 │   ├── infinity/    Infinity HTTP query client
 │   ├── loki/        Loki HTTP query client
 │   ├── clickhouse/  ClickHouse HTTP query client
