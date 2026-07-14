@@ -131,6 +131,7 @@ internal/
 ├── datasources/ Datasource HTTP client, DatasourceProvider interface + registry
 │   ├── clickhouse/  ClickHouse datasource commands (query, list-tables, describe-table, explore)
 │   ├── cloudwatch/  CloudWatch CLI commands (query, list-namespaces, list-metrics, list-dimensions, list-regions, list-accounts)
+│   ├── elasticsearch/  Elasticsearch datasource commands (query, logs, metrics, list-indices, fields)
 │   ├── influxdb/  InfluxDB datasource command layer (query, field-keys, measurements)
 │   └── query/   Shared query CLI utils (time parsing, codecs, opts, resolve helpers — used by signal providers and GenericCmd)
 ├── query/       Datasource query clients
@@ -138,6 +139,7 @@ internal/
 │   ├── grafanaquery/ Shared POST transport for `/apis/query.grafana.app/.../query` with `/api/ds/query` fallback
 │   ├── cloudwatch/  CloudWatch HTTP query client (metric queries, resource listing)
 │   ├── prometheus/  Prometheus HTTP query client
+│   ├── elasticsearch/ Elasticsearch HTTP query client (Lucene search, logs, aggregations, mapping discovery)
 │   ├── influxdb/    InfluxDB HTTP query client
 │   ├── infinity/    Infinity HTTP query client
 │   ├── loki/        Loki HTTP query client
