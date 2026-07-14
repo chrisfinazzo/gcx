@@ -412,8 +412,7 @@ func checkCmd(configOpts *Options) *cobra.Command {
 	return cmd
 }
 
-func checkContext(ctx context.Context, w io.Writer, cfg config.Config, gCtx *config.Context, source config.Source) error {
-	stdout := w
+func checkContext(ctx context.Context, stdout io.Writer, cfg config.Config, gCtx *config.Context, source config.Source) error {
 	title := "Context: "
 	titleLen := len(title) + len(gCtx.Name)
 	title += cmdio.Bold(gCtx.Name)
@@ -435,8 +434,8 @@ func checkContext(ctx context.Context, w io.Writer, cfg config.Config, gCtx *con
 		}
 	}
 
-	fmt.Fprintln(w, cmdio.Yellow(title))
-	fmt.Fprintln(w, cmdio.Yellow(strings.Repeat("=", titleLen)))
+	fmt.Fprintln(stdout, cmdio.Yellow(title))
+	fmt.Fprintln(stdout, cmdio.Yellow(strings.Repeat("=", titleLen)))
 
 	if err := gCtx.Validate(ctx); err != nil {
 		cmdio.Error(stdout, "Configuration: %s", cmdio.Red(summarizeError(err)))
