@@ -73,10 +73,8 @@ The following are deliberately never collected, and this is enforced by tests:
 - Argument values and flag values
 - Resource names, UIDs, or query bodies
 - Hostnames, server URLs, and Grafana Cloud stack slugs
-- Organization or account identifiers
 - Tokens, credentials, or file paths
 - Error messages and stack traces
-- Your IP address or anything derived from it on the client
 
 ## Invocations that report nothing
 
@@ -93,8 +91,6 @@ Reports are received by Grafana's usage-stats service, the same service that rec
 
 - A coarse **geographic region** (for example, a country or subdivision), taken from headers added by the CDN edge.
 - The **network organization name** from a whois lookup of the connecting IP address. For CLI traffic this typically resolves to your ISP or employer's network.
-
-The IP address itself is not stored — only the derived region and organization name.
 
 ## Inspect what would be sent
 
