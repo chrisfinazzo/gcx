@@ -92,6 +92,8 @@ Reports are received by Grafana's usage-stats service, the same service that rec
 - A coarse **geographic region** (for example, a country or subdivision), taken from headers added by the CDN edge.
 - The **network organization name** from a whois lookup of the connecting IP address. For CLI traffic this typically resolves to your ISP or employer's network.
 
+The connecting IP address is processed server-side to derive these values (including being sent to a whois service) and appears in the service's operational logs, traces, and caches; it is not included in the stored usage event itself.
+
 ## Inspect what would be sent
 
 To see exactly what `gcx` would report for an invocation, set `GCX_TELEMETRY=log`. The event is printed to stderr and nothing is sent:
