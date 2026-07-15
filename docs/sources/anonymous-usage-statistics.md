@@ -12,7 +12,7 @@ weight: 4
 
 `gcx` can report anonymous, non-sensitive usage statistics about how the CLI itself is used to Grafana Labs. This data helps the team understand which commands and flags are used most, where commands fail, and which commands people try that don't exist, so development effort goes where it matters.
 
-The statistics describe only the *shape* of usage — the command path, the names of flags you set, and a categorized outcome. They never include the *content* of what you did: no argument values, no flag values, no resource names, and nothing that identifies you, your organization, or your data.
+The statistics describe only the *shape* of usage — the command path, the names of flags you set, and a categorized outcome. They never include the *content* of what you did: no argument values, no flag values, no resource names, and nothing about your data. See [Server-side enrichment](#server-side-enrichment) for what the receiving service derives from the connection itself.
 
 {{< admonition type="note" >}}
 Usage statistics reporting is currently **disabled by default**. If it becomes enabled by default in a future release, that change will be announced in the release notes, and the opt-out controls described on this page will continue to work.
