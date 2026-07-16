@@ -1,6 +1,6 @@
 # Output Contract
 
-> Defines the rules for command output: codecs, status messages, JSON field selection, codec requirements by command type, mutation command summaries, and pull format consistency.
+> Defines the rules for command output: codecs, status messages, JSON field selection, codec requirements by command type, mutation command summaries, list truncation, and pull format consistency.
 
 Reference alongside [cli-layer.md](../architecture/cli-layer.md) for command structure and [patterns.md](../architecture/patterns.md) for architectural patterns.
 
@@ -272,7 +272,76 @@ When agent mode is active:
 
 ---
 
-## 14. Pull Format Consistency
+## 14. List Truncation Contract
+
+List commands must never truncate silently. All truncation flows through the
+shared helper in `internal/output/listmeta.go` — do not roll per-command hint
+strings or ad-hoc slicing.
+
+### 14.1 Rules
+
+1. **`--limit 0` means unlimited, uniformly.** Every list command's `--limit`
+   flag documents `0` as the full-set spelling, and every truncation hint
+   suggests `<command> --limit 0`.
+2. **Truncation is machine-legible in the payload.** A truncated page carries
+   a `list_meta` field in its items envelope:
+
+   ```json
+   {
+     "items": [ ... ],
+     "list_meta": {"truncated": true, "returned": 50, "total": 312, "continue": "gcx ... list --limit 0"}
+   }
+   ```
+
+   `list_meta` is **absent when the output is the complete set** — its
+   presence is the truncation signal, so an agent reading stdout cannot
+   mistake a page for the whole set. `total` is included only when the code
+   actually observed it (fully-fetched source); it is omitted — never
+   guessed — for undrained paginated sources.
+3. **Truncation is human-legible on stderr.** The paired hint goes through
+   `EmitListTruncationHint` (which routes through `EmitHint`, so agent mode
+   emits the JSONL `class:"hint"` form):
+
+   ```
+   hint: showing first 10 of 87: gcx datasources list --limit 0        # total known
+   hint: showing first 50 (more available): gcx ... list --limit 0     # total unknown
+   ```
+4. **Detect truncation cheaply — never drain the set just to count it.**
+   Pick the constructor matching the source:
+
+   | Source shape | Helper | Total |
+   |---|---|---|
+   | Cheaply complete (API has no server-side limit; full set already fetched) | `TruncateCompleteList(items, limit, cmd)` | observed |
+   | Paginated, API reports more-pages (continue token / next cursor) | `PagedListMeta(returned, limit, hasMore, cmd)` | unknown |
+   | Paginated, no more-pages signal | over-fetch by one (`limit+1` on the wire), then `TruncatePagedList(items, limit, cmd)` | unknown |
+
+5. **Push the limit server-side where the API supports it** — the limit is a
+   display concern, never a perf lever, but fetch-all-then-slice wastes I/O
+   and defeats pagination. For paginated sources, request `limit` (or
+   `limit+1`) from the API instead of draining.
+6. **Default by source shape.** Cheaply complete sources default to
+   `--limit 0` (the full set is already in hand; a default cap only hides
+   data). Large or paginated sources default to a bounded page (50) with
+   explicit truncation metadata.
+
+### 14.2 Implementation
+
+`internal/output/listmeta.go`: `ListMeta`, `TruncateCompleteList`,
+`TruncatePagedList`, `PagedListMeta`, `EmitListTruncationHint`. Attach the
+metadata to the command's items envelope as
+
+```go
+ListMeta *cmdio.ListMeta `json:"list_meta,omitempty" yaml:"list_meta,omitempty"`
+```
+
+Table codecs ignore the field; JSON/YAML/agents serialize it verbatim.
+Reference migrations: `cmd/gcx/datasources/list.go` (complete source),
+`internal/providers/irm/oncall_commands_extra.go` (paginated source, both
+server-reported and over-fetch-by-one variants).
+
+---
+
+## 15. Pull Format Consistency
 
 `pull` accepts a `--format` flag (values: `yaml`, `json`; default: `yaml`)
 that enforces consistent file format on disk. All pulled files use the
