@@ -249,9 +249,13 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 				envs = append(envs, env)
 			}
 
+			// The server reports directly whether more pages exist, so the
+			// truncation metadata never guesses a total.
+			meta := cmdio.PagedListMeta(len(envs), opts.Limit, serverHasMore, "gcx irm oncall alert-groups list")
+
 			// List envelope MUST be `{"items": [...]}` (never bare
 			// array, never null). Empty result is `{"items": []}`.
-			if err := opts.IO.Encode(cmd.OutOrStdout(), alertGroupItemsEnvelope{Items: envs}); err != nil {
+			if err := opts.IO.Encode(cmd.OutOrStdout(), alertGroupItemsEnvelope{Items: envs, ListMeta: meta}); err != nil {
 				return err
 			}
 
@@ -271,13 +275,10 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 				emitNote(stderr, "default filter excludes resolved and child groups; pass --all or --include-child-groups to broaden")
 			}
 
-			// Hint emission (locked shape, D2 round 14): only when the user
-			// accepted truncation (--limit > 0), the result hit the limit
-			// exactly, AND the server confirmed more pages exist. Otherwise
-			// silent.
-			if opts.Limit > 0 && len(envs) == opts.Limit && serverHasMore {
-				emitAlertGroupListLimitHint(stderr, opts.Limit)
-			}
+			// Truncation hint: standardized shape shared by all list
+			// commands, emitted only when the metadata says the page is
+			// partial. Otherwise silent.
+			cmdio.EmitListTruncationHint(stderr, meta)
 
 			// Filter-summary hint (D2 round 17): silent only when --all is
 			// passed AND no other filter flag is in effect (the "show me
@@ -297,21 +298,6 @@ func newAlertGroupListCommand(loader OnCallConfigLoader) *cobra.Command {
 	}
 	opts.setup(cmd.Flags())
 	return cmd
-}
-
-// emitAlertGroupListLimitHint surfaces the D2-round-14 truncation hint on
-// stderr when alert-groups list returns exactly `limit` rows AND the server
-// reported a non-empty `next` cursor. Format mirrors the locked shape and
-// surfaces a runnable command (a doubled-limit fetch
-// is a sensible next step that avoids committing to --limit 0):
-//
-//	TTY:    "hint: showing first N results: gcx irm oncall alert-groups list --limit M"
-//	agent:  {"class":"hint","summary":"showing first N results","command":"gcx irm oncall alert-groups list --limit M"}
-func emitAlertGroupListLimitHint(stderr io.Writer, limit int) {
-	suggested := limit * 2
-	emitHint(stderr,
-		fmt.Sprintf("showing first %d results", limit),
-		fmt.Sprintf("gcx irm oncall alert-groups list --limit %d", suggested))
 }
 
 // alertGroupListFilterMaxLen caps the rendered filter summary at a generous
@@ -493,7 +479,9 @@ func listAlertGroupsLegacy(cmd *cobra.Command, opts *alertGroupListOpts, filters
 		listOpts = append(listOpts, WithIntegrations(filters.Integrations...))
 	}
 	if opts.Limit > 0 {
-		listOpts = append(listOpts, WithLimit(opts.Limit))
+		// Over-fetch by one: the public API has no more-pages signal, so a
+		// spare item is the cheap proof that the page is partial.
+		listOpts = append(listOpts, WithLimit(opts.Limit+1))
 	}
 
 	// Surface unsupported-filter warnings once at the command edge — the
@@ -525,6 +513,7 @@ func listAlertGroupsLegacy(cmd *cobra.Command, opts *alertGroupListOpts, filters
 	if err != nil {
 		return err
 	}
+	items, meta := cmdio.TruncatePagedList(items, opts.Limit, "gcx irm oncall alert-groups list")
 	// SA-token mode doesn't get the rich shape (no internal API access). The
 	// envelope type is the same — most status fields stay empty (omitempty);
 	// only AlertsCount/Status (decoded) are populated from the public payload.
@@ -551,7 +540,11 @@ func listAlertGroupsLegacy(cmd *cobra.Command, opts *alertGroupListOpts, filters
 	}
 	// Wrap in the items envelope on every list path, including the
 	// SA-token fallback.
-	return opts.IO.Encode(cmd.OutOrStdout(), alertGroupItemsEnvelope{Items: envs})
+	if err := opts.IO.Encode(cmd.OutOrStdout(), alertGroupItemsEnvelope{Items: envs, ListMeta: meta}); err != nil {
+		return err
+	}
+	cmdio.EmitListTruncationHint(cmd.ErrOrStderr(), meta)
+	return nil
 }
 
 // alertGroupListHardCap bounds the maximum number of items returned by
@@ -1427,6 +1420,9 @@ type alertEnvelope struct {
 // `internal/output/format.go::marshalToSampleMap`).
 type alertGroupItemsEnvelope struct {
 	Items []alertGroupEnvelope `json:"items" yaml:"items"`
+	// ListMeta is set only when the output is a truncated page, so agents
+	// cannot mistake a page for the complete set.
+	ListMeta *cmdio.ListMeta `json:"list_meta,omitempty" yaml:"list_meta,omitempty"`
 }
 
 // alertItemsEnvelope is the list envelope for `alert-groups list-alerts`.

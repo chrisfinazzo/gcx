@@ -30,7 +30,7 @@ func (opts *listOpts) setup(flags *pflag.FlagSet) {
 
 	flags.StringVarP(&opts.Type, "type", "t", "", "Filter by datasource type (e.g., prometheus, loki)")
 	flags.StringVar(&opts.Name, "name", "", "Filter by datasource name (case-insensitive substring match)")
-	flags.IntVar(&opts.Limit, "limit", 50, "Maximum number of datasources to return")
+	flags.IntVar(&opts.Limit, "limit", 0, "Maximum number of datasources to return (0 = all)")
 }
 
 func (opts *listOpts) Validate() error {
@@ -109,13 +109,18 @@ func listCmd() *cobra.Command {
 				})
 			}
 
-			if opts.Limit > 0 && len(infos) > opts.Limit {
-				infos = infos[:opts.Limit]
-			}
+			// The full set is already in hand (neither transport supports a
+			// server-side limit), so the limit is purely a display trim and
+			// the observed total is exact.
+			infos, meta := cmdio.TruncateCompleteList(infos, opts.Limit, "gcx datasources list")
 
 			// Pattern 13: single shape for all formats. The table codec extracts
 			// .Datasources to render rows; JSON/YAML serialize the envelope.
-			return opts.IO.Encode(cmd.OutOrStdout(), &datasourceListResult{Datasources: infos})
+			if err := opts.IO.Encode(cmd.OutOrStdout(), &datasourceListResult{Datasources: infos, ListMeta: meta}); err != nil {
+				return err
+			}
+			cmdio.EmitListTruncationHint(cmd.ErrOrStderr(), meta)
+			return nil
 		},
 	}
 
@@ -139,6 +144,9 @@ type datasourceInfo struct {
 // extracts .Datasources to render rows (Pattern 13: format-agnostic data).
 type datasourceListResult struct {
 	Datasources []*datasourceInfo `json:"datasources" yaml:"datasources"`
+	// ListMeta is set only when the output is a truncated page, so agents
+	// cannot mistake a page for the complete set.
+	ListMeta *cmdio.ListMeta `json:"list_meta,omitempty" yaml:"list_meta,omitempty"`
 }
 
 type datasourceTableCodec struct{}

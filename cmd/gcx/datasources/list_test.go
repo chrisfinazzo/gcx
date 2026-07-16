@@ -9,11 +9,18 @@ import (
 	"testing"
 
 	"github.com/grafana/gcx/cmd/gcx/datasources"
+	"github.com/grafana/gcx/internal/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func executeDatasourceCommand(t *testing.T, args []string) (string, error) {
+	t.Helper()
+	stdout, _, err := executeDatasourceCommandStreams(t, args)
+	return stdout, err
+}
+
+func executeDatasourceCommandStreams(t *testing.T, args []string) (string, string, error) {
 	t.Helper()
 
 	root := helperRoot(datasources.Command())
@@ -26,7 +33,7 @@ func executeDatasourceCommand(t *testing.T, args []string) (string, error) {
 	if err != nil {
 		t.Logf("stderr: %s", stderr.String())
 	}
-	return stdout.String(), err
+	return stdout.String(), stderr.String(), err
 }
 
 // newDatasourceServer serves the given items from /api/datasources. It mimics a
@@ -202,12 +209,86 @@ func TestListExplicitLimitTrimsDatasources(t *testing.T) {
 	defer server.Close()
 
 	configFile := newConfigFileForServer(t, server.URL)
-	stdout, err := executeDatasourceCommand(t, []string{"datasources", "list", "--config", configFile, "--limit", "10", "-o", "json"})
+	stdout, stderr, err := executeDatasourceCommandStreams(t, []string{"datasources", "list", "--config", configFile, "--limit", "10", "-o", "json"})
 	require.NoError(t, err)
 
 	var result struct {
 		Datasources []map[string]any `json:"datasources"`
+		ListMeta    *struct {
+			Truncated bool   `json:"truncated"`
+			Returned  int    `json:"returned"`
+			Total     *int   `json:"total"`
+			Continue  string `json:"continue"`
+		} `json:"list_meta"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
 	assert.Len(t, result.Datasources, 10)
+
+	// Truncation is machine-legible in the payload: the source is fully
+	// fetched, so the total is the observed count.
+	require.NotNil(t, result.ListMeta)
+	assert.True(t, result.ListMeta.Truncated)
+	assert.Equal(t, 10, result.ListMeta.Returned)
+	require.NotNil(t, result.ListMeta.Total)
+	assert.Equal(t, 60, *result.ListMeta.Total)
+	assert.Equal(t, "gcx datasources list --limit 0", result.ListMeta.Continue)
+
+	// ...and human-legible on stderr.
+	assert.Contains(t, stderr, "hint: showing first 10 of 60: gcx datasources list --limit 0")
+}
+
+// TestListDefaultReturnsAllWithoutMeta locks the "cheaply complete source"
+// default: no --limit means the full set, with no truncation metadata.
+func TestListDefaultReturnsAllWithoutMeta(t *testing.T) {
+	server := newDatasourceListServer(t, 60)
+	defer server.Close()
+
+	configFile := newConfigFileForServer(t, server.URL)
+	stdout, stderr, err := executeDatasourceCommandStreams(t, []string{"datasources", "list", "--config", configFile, "-o", "json"})
+	require.NoError(t, err)
+
+	var result struct {
+		Datasources []map[string]any `json:"datasources"`
+		ListMeta    *map[string]any  `json:"list_meta"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	assert.Len(t, result.Datasources, 60)
+	assert.Nil(t, result.ListMeta)
+	assert.NotContains(t, stderr, "showing first")
+}
+
+// TestListAgentModeStructuredTruncation locks the agent-mode contract: a
+// truncated page carries list_meta in the structured stdout payload itself,
+// so an agent cannot mistake the page for the complete set.
+func TestListAgentModeStructuredTruncation(t *testing.T) {
+	t.Cleanup(agent.ResetForTesting) // runs after t.Setenv restores the env
+	t.Setenv("GCX_AGENT_MODE", "true")
+	agent.ResetForTesting()
+
+	server := newDatasourceListServer(t, 30)
+	defer server.Close()
+
+	configFile := newConfigFileForServer(t, server.URL)
+	// No -o flag: agent mode defaults to the agents codec (compact JSON).
+	stdout, stderr, err := executeDatasourceCommandStreams(t, []string{"datasources", "list", "--config", configFile, "--limit", "5"})
+	require.NoError(t, err)
+
+	var result struct {
+		Datasources []map[string]any `json:"datasources"`
+		ListMeta    *struct {
+			Truncated bool `json:"truncated"`
+			Returned  int  `json:"returned"`
+			Total     *int `json:"total"`
+		} `json:"list_meta"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	assert.Len(t, result.Datasources, 5)
+	require.NotNil(t, result.ListMeta)
+	assert.True(t, result.ListMeta.Truncated)
+	assert.Equal(t, 5, result.ListMeta.Returned)
+	require.NotNil(t, result.ListMeta.Total)
+	assert.Equal(t, 30, *result.ListMeta.Total)
+
+	// The stderr hint switches to the JSONL class:"hint" form in agent mode.
+	assert.Contains(t, stderr, `{"class":"hint","summary":"showing first 5 of 30"`)
 }
