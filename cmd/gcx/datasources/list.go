@@ -30,7 +30,7 @@ func (opts *listOpts) setup(flags *pflag.FlagSet) {
 
 	flags.StringVarP(&opts.Type, "type", "t", "", "Filter by datasource type (e.g., prometheus, loki)")
 	flags.StringVar(&opts.Name, "name", "", "Filter by datasource name (case-insensitive substring match)")
-	flags.IntVar(&opts.Limit, "limit", 0, "Maximum number of datasources to return (0 = all)")
+	flags.IntVar(&opts.Limit, "limit", 0, "Maximum number of datasources to return. 0 means all results are returned")
 }
 
 func (opts *listOpts) Validate() error {
