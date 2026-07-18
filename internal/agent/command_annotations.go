@@ -216,6 +216,32 @@ var commandAnnotations = map[string]annotation{
 	"gcx annotations mass-delete": {Cost: "small", Hint: "--dashboard-uid <uid> --panel-id <n>"},
 
 	// -----------------------------------------------------------------------
+	// Organization provider
+	// -----------------------------------------------------------------------
+	"gcx org users list":        {Cost: "medium", Hint: "--limit 50 -o json"},
+	"gcx org users get":         {Cost: "small", Hint: "<login-or-email> -o json"},
+	"gcx org users add":         {Cost: "small", Hint: "--login <login-or-email> --role Editor"},
+	"gcx org users update-role": {Cost: "small", Hint: "<user-id> --role Admin"},
+	"gcx org users remove":      {Cost: "small"},
+
+	// -----------------------------------------------------------------------
+	// Public Dashboards provider
+	// -----------------------------------------------------------------------
+	"gcx public-dashboards list":   {Cost: "medium", Hint: "-o json"},
+	"gcx public-dashboards get":    {Cost: "small", Hint: "<pd-uid> -o json"},
+	"gcx public-dashboards create": {Cost: "small", Hint: "--dashboard-uid <dashboard-uid> -f public-dashboard.json"},
+	"gcx public-dashboards update": {Cost: "small", Hint: "<pd-uid> --dashboard-uid <dashboard-uid> -f patch.json"},
+	"gcx public-dashboards delete": {Cost: "small"},
+
+	// -----------------------------------------------------------------------
+	// Permissions provider (granular RBAC)
+	// -----------------------------------------------------------------------
+	"gcx permissions get":    {Cost: "medium", Hint: "<resource> <id> -o json; resource is folders|dashboards|datasources|teams|serviceaccounts"},
+	"gcx permissions set":    {Cost: "small", Hint: "<resource> <id> -f acl.json"},
+	"gcx permissions grant":  {Cost: "small", Hint: "<resource> <id> --team 3 --level Edit"},
+	"gcx permissions levels": {Cost: "small", Hint: "<resource> -o json"},
+
+	// -----------------------------------------------------------------------
 	// App Observability provider
 	// -----------------------------------------------------------------------
 	"gcx appo11y overrides get":    {Cost: "small"},
