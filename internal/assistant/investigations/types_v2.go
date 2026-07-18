@@ -1,5 +1,7 @@
 package investigations
 
+import "time"
+
 // --- v2 (Lodestone) types ---
 //
 // Lodestone is the single-agent successor to the legacy investigations
@@ -37,6 +39,75 @@ type ListLodestoneOptions struct {
 	Offset        int
 	Label         string
 	IncludeLegacy bool
+}
+
+// LodestoneList is the collection envelope from GET /api/v2/investigations.
+// Total is the number of matching investigations across all pages, for
+// offset-based pagination.
+type LodestoneList struct {
+	Investigations []LodestoneInvestigationSummary `json:"investigations"`
+	Total          int64                           `json:"total"`
+}
+
+// LodestoneInvestigationSummary is a v2 list item. It mirrors the server's
+// summary shape field-for-field so no data is dropped from json/yaml output.
+// The deprecated `confidence` field (always null server-side) is omitted.
+type LodestoneInvestigationSummary struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title,omitempty"`
+	Description string    `json:"description,omitempty"`
+	State       string    `json:"state"`
+	ChatID      string    `json:"chatId,omitempty"`
+	Variant     string    `json:"variant,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	// TokensUsed is the summed input+output+cache token count of the backing
+	// chat. Only populated for view=full.
+	TokensUsed        *int                   `json:"tokensUsed,omitempty"`
+	Source            *LodestoneSource       `json:"source,omitempty"`
+	Agents            []LodestoneAgent       `json:"agents,omitempty"`
+	Progress          *LodestoneTodoProgress `json:"progress,omitempty"`
+	CompletionQuality *string                `json:"completionQuality,omitempty"`
+	DegradedReason    *string                `json:"degradedReason,omitempty"`
+	Labels            map[string]string      `json:"labels,omitempty"`
+	OwnerUserID       string                 `json:"ownerUserId,omitempty"`
+	ActiveLoopCount   int                    `json:"activeLoopCount,omitempty"`
+}
+
+// LodestoneSource identifies what created an investigation
+// (type: url|user|assistant).
+type LodestoneSource struct {
+	Type   string `json:"type,omitempty"`
+	Value  string `json:"value,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+	ChatID string `json:"chatId,omitempty"`
+	UserID string `json:"userId,omitempty"`
+}
+
+// LodestoneAgent is per-agent progress data attached to a summary
+// (view=full only).
+type LodestoneAgent struct {
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name,omitempty"`
+	Task                   string    `json:"task,omitempty"`
+	FinalMessage           *string   `json:"finalMessage,omitempty"`
+	Status                 string    `json:"status,omitempty"`
+	Audience               string    `json:"audience,omitempty"`
+	CreatedAt              string    `json:"createdAt,omitempty"`
+	UpdatedAt              string    `json:"updatedAt,omitempty"`
+	TokensPerSecondHistory []float64 `json:"tokensPerSecondHistory,omitempty"`
+	TokenCounter           *int64    `json:"tokenCounter,omitempty"`
+	OutputPreview          *string   `json:"outputPreview,omitempty"`
+}
+
+// LodestoneTodoProgress is the todo completion breakdown attached to a
+// summary (view=full only).
+type LodestoneTodoProgress struct {
+	Pending    int `json:"pending"`
+	InProgress int `json:"inProgress"`
+	Completed  int `json:"completed"`
+	Canceled   int `json:"canceled"`
+	Total      int `json:"total"`
 }
 
 // LodestoneState is the response from GET /investigations/lodestone/{chatId}/state.
