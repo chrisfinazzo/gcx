@@ -32,7 +32,7 @@ func basePath(resource string) string {
 // Describe returns the assignable permission levels and assignment types for a
 // resource kind.
 func (c *Client) Describe(ctx context.Context, resource string) (*Description, error) {
-	d, err := coreapi.DoJSON[any, Description](ctx, c.base, http.MethodGet, basePath(resource)+"/description", nil, http.StatusOK)
+	d, err := coreapi.DoJSON[Description](ctx, c.base, http.MethodGet, basePath(resource)+"/description", nil, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -41,14 +41,14 @@ func (c *Client) Describe(ctx context.Context, resource string) (*Description, e
 
 // Get returns the permission list for a resource instance.
 func (c *Client) Get(ctx context.Context, resource, resourceID string) ([]ResourcePermission, error) {
-	return coreapi.DoJSON[any, []ResourcePermission](ctx, c.base, http.MethodGet,
+	return coreapi.DoJSON[[]ResourcePermission](ctx, c.base, http.MethodGet,
 		fmt.Sprintf("%s/%s", basePath(resource), url.PathEscape(resourceID)), nil, http.StatusOK)
 }
 
 // Set replaces the full permission set for a resource instance.
 func (c *Client) Set(ctx context.Context, resource, resourceID string, perms []SetResourcePermissionCommand) error {
 	body := setPermissionsBody{Permissions: perms}
-	err := coreapi.DoStatus[setPermissionsBody](ctx, c.base, http.MethodPost,
+	err := coreapi.DoStatus(ctx, c.base, http.MethodPost,
 		fmt.Sprintf("%s/%s", basePath(resource), url.PathEscape(resourceID)), &body, http.StatusOK)
 	return annotateForbidden(err)
 }
@@ -74,7 +74,7 @@ func (c *Client) SetBuiltInRolePermission(ctx context.Context, resource, resourc
 func (c *Client) setPrincipal(ctx context.Context, resource, resourceID, principalKind, principalRef, level string) error {
 	body := setPermissionBody{Permission: level}
 	path := fmt.Sprintf("%s/%s/%s/%s", basePath(resource), url.PathEscape(resourceID), principalKind, url.PathEscape(principalRef))
-	err := coreapi.DoStatus[setPermissionBody](ctx, c.base, http.MethodPost, path, &body, http.StatusOK)
+	err := coreapi.DoStatus(ctx, c.base, http.MethodPost, path, &body, http.StatusOK)
 	return annotateForbidden(err)
 }
 

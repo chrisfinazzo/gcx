@@ -30,7 +30,7 @@ func NewClient(cfg config.NamespacedRESTConfig) (*Client, error) {
 
 // List returns all users in the current organization.
 func (c *Client) List(ctx context.Context) ([]OrgUser, error) {
-	return coreapi.DoJSON[any, []OrgUser](ctx, c.base, http.MethodGet, "/api/org/users", nil, http.StatusOK)
+	return coreapi.DoJSON[[]OrgUser](ctx, c.base, http.MethodGet, "/api/org/users", nil, http.StatusOK)
 }
 
 // Get returns a single user in the current organization by numeric user ID.
@@ -65,20 +65,20 @@ func (c *Client) GetByLoginOrEmail(ctx context.Context, loginOrEmail string) (*O
 
 // Add adds a user (by login or email) to the current organization.
 func (c *Client) Add(ctx context.Context, req AddUserRequest) error {
-	return coreapi.DoStatus[AddUserRequest](ctx, c.base, http.MethodPost, "/api/org/users", &req, http.StatusOK)
+	return coreapi.DoStatus(ctx, c.base, http.MethodPost, "/api/org/users", &req, http.StatusOK)
 }
 
 // UpdateUserRole changes the role of a user in the current organization.
 func (c *Client) UpdateUserRole(ctx context.Context, userID int, role string) error {
 	body := map[string]string{"role": role}
-	return coreapi.DoStatusNotFound[map[string]string](ctx, c.base, http.MethodPatch,
+	return coreapi.DoStatusNotFound(ctx, c.base, http.MethodPatch,
 		fmt.Sprintf("/api/org/users/%d", userID), &body,
 		fmt.Errorf("user id %d: %w", userID, ErrNotFound), http.StatusOK)
 }
 
 // RemoveUser removes a user from the current organization.
 func (c *Client) RemoveUser(ctx context.Context, userID int) error {
-	return coreapi.DoStatusNotFound[any](ctx, c.base, http.MethodDelete,
+	return coreapi.DoStatusNotFound(ctx, c.base, http.MethodDelete,
 		fmt.Sprintf("/api/org/users/%d", userID), nil,
 		fmt.Errorf("user id %d: %w", userID, ErrNotFound), http.StatusOK)
 }

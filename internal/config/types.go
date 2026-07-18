@@ -67,6 +67,11 @@ type DiagnosticsConfig struct {
 	// LogDir overrides the output directory for agent invocation log files.
 	// Default: $XDG_STATE_HOME/gcx/ (platform-specific).
 	LogDir string `json:"log-dir,omitempty" yaml:"log-dir,omitempty"`
+
+	// Telemetry controls anonymous usage telemetry: "enabled", "disabled",
+	// or "log" (prints to stderr). Overridden by the GCX_TELEMETRY and
+	// DO_NOT_TRACK environment variables.
+	Telemetry string `json:"telemetry,omitempty" yaml:"telemetry,omitempty"`
 }
 
 func (config *Config) HasContext(name string) bool {
@@ -172,9 +177,28 @@ type Context struct {
 	// Secret fields are selectively redacted by providers.RedactSecrets using
 	// each provider's ConfigKey metadata.
 	Providers map[string]map[string]string `json:"providers,omitempty" yaml:"providers,omitempty"`
+
+	// Resources holds settings for the `gcx resources` commands in this context.
+	Resources *ResourcesConfig `json:"resources,omitempty" yaml:"resources,omitempty"`
 }
 
-func (context *Context) Validate() error {
+// ResourcesConfig holds per-context settings for the `gcx resources` commands.
+type ResourcesConfig struct {
+	// AssumeServerDryRun lists resources ("<resource>.<group>", e.g.
+	// "alertrules.rules.alerting.grafana.app") the user asserts honor server-side dry-run on
+	// this stack, added to the built-in allowlist so --dry-run sends them to the server.
+	AssumeServerDryRun []string `json:"assume-server-dry-run,omitempty" yaml:"assume-server-dry-run,omitempty"`
+}
+
+// AssumeServerDryRun returns the context's assume-server-dry-run list, or nil if unset.
+func (context *Context) AssumeServerDryRun() []string {
+	if context.Resources == nil {
+		return nil
+	}
+	return context.Resources.AssumeServerDryRun
+}
+
+func (context *Context) Validate(ctx context.Context) error {
 	if context.Grafana == nil || context.Grafana.IsEmpty() {
 		return ValidationError{
 			Path:    fmt.Sprintf("$.contexts.'%s'", context.Name),
@@ -182,7 +206,7 @@ func (context *Context) Validate() error {
 		}
 	}
 
-	return context.Grafana.Validate(context.Name)
+	return context.Grafana.Validate(ctx, context.Name)
 }
 
 // ToRESTConfig returns a REST config for the context.
@@ -437,41 +461,31 @@ type GrafanaConfig struct {
 	TLS *TLS `json:"tls,omitempty" yaml:"tls,omitempty"`
 }
 
-func (grafana GrafanaConfig) validateNamespace(contextName string) error {
+func (grafana GrafanaConfig) validateNamespace(ctx context.Context, contextName string) error {
 	if grafana.OrgID != 0 {
 		return nil
 	}
 
-	discoveredStackID, discoveryErr := DiscoverStackID(context.Background(), grafana)
-
-	if grafana.StackID == 0 {
-		if discoveryErr != nil {
-			return ValidationError{
-				Path:    fmt.Sprintf("$.contexts.'%s'.grafana", contextName),
-				Message: fmt.Sprintf("missing contexts.%[1]s.grafana.org-id or contexts.%[1]s.grafana.stack-id", contextName),
-				Suggestions: []string{
-					"Specify the Grafana Org ID for on-prem Grafana",
-					"Specify the Grafana Cloud Stack ID for Grafana Cloud",
-					"Find your Stack ID at grafana.com under your stack's details page",
-				},
-			}
+	// A configured StackID is authoritative (matching resolveNamespace). Don't pay
+	// a /bootdata round-trip on every command just to preflight it — only assert
+	// against discovery when a value is already memoized this process. A wrong id
+	// still surfaces at the first real API call.
+	if grafana.StackID != 0 {
+		if discoveredStackID, ok := cachedStackID(grafana.Server); ok && discoveredStackID != grafana.StackID {
+			return grafana.stackIDMismatchError(contextName, discoveredStackID)
 		}
-
 		return nil
 	}
 
-	// If discovery failed but grafana.StackID is set, we proceed with the configured StackID
-	//nolint:nilerr // We intentionally ignore the error when StackID is configured
-	if discoveryErr != nil {
-		return nil
-	}
-
-	if discoveredStackID != grafana.StackID {
+	// No StackID configured: discover it (cached, reused by resolveNamespace).
+	if _, err := discoverStackIDCached(ctx, grafana); err != nil {
 		return ValidationError{
 			Path:    fmt.Sprintf("$.contexts.'%s'.grafana", contextName),
-			Message: fmt.Sprintf("mismatched contexts.%[1]s.grafana.stack-id, discovered %d - was %d in config", contextName, discoveredStackID, grafana.StackID),
+			Message: fmt.Sprintf("missing contexts.%[1]s.grafana.org-id or contexts.%[1]s.grafana.stack-id", contextName),
 			Suggestions: []string{
-				"Specify the correct Grafana Cloud Stack ID for Grafana Cloud or omit the stack-id param",
+				"Specify the Grafana Org ID for on-prem Grafana",
+				"Specify the Grafana Cloud Stack ID for Grafana Cloud",
+				"Find your Stack ID at grafana.com under your stack's details page",
 			},
 		}
 	}
@@ -479,7 +493,17 @@ func (grafana GrafanaConfig) validateNamespace(contextName string) error {
 	return nil
 }
 
-func (grafana GrafanaConfig) Validate(contextName string) error {
+func (grafana GrafanaConfig) stackIDMismatchError(contextName string, discoveredStackID int64) error {
+	return ValidationError{
+		Path:    fmt.Sprintf("$.contexts.'%s'.grafana", contextName),
+		Message: fmt.Sprintf("mismatched contexts.%[1]s.grafana.stack-id, discovered %d - was %d in config", contextName, discoveredStackID, grafana.StackID),
+		Suggestions: []string{
+			"Specify the correct Grafana Cloud Stack ID for Grafana Cloud or omit the stack-id param",
+		},
+	}
+}
+
+func (grafana GrafanaConfig) Validate(ctx context.Context, contextName string) error {
 	if grafana.Server == "" {
 		return ValidationError{
 			Path:    fmt.Sprintf("$.contexts.'%s'.grafana", contextName),
@@ -503,7 +527,7 @@ func (grafana GrafanaConfig) Validate(contextName string) error {
 		}
 	}
 
-	if err := grafana.validateNamespace(contextName); err != nil {
+	if err := grafana.validateNamespace(ctx, contextName); err != nil {
 		return err
 	}
 

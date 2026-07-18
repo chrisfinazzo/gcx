@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/grafana/gcx/internal/config"
+	"github.com/grafana/gcx/internal/providers"
 	"k8s.io/client-go/rest"
 )
 
@@ -78,17 +80,6 @@ func (c *OnCallClient) DoRequest(ctx context.Context, method, path string, body 
 	return resp, nil
 }
 
-func handleErrorResponse(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("request failed with status %d (could not read body: %w)", resp.StatusCode, err)
-	}
-	if len(body) > 0 {
-		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-	return fmt.Errorf("request failed with status %d", resp.StatusCode)
-}
-
 type paginatedResponse[T any] struct {
 	Results []T     `json:"results"`
 	Next    *string `json:"next"`
@@ -113,7 +104,7 @@ func iterResources[T any](ctx context.Context, c *OnCallClient, path, resourceTy
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				err := handleErrorResponse(resp)
+				err := providers.HandleErrorResponse(resp)
 				resp.Body.Close()
 				var z T
 				yield(z, err)
@@ -228,7 +219,7 @@ func getResource[T any](ctx context.Context, c *OnCallClient, basePath, id, reso
 		return nil, fmt.Errorf("irm: %s %q not found", resourceType, id)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 
 	var result T
@@ -251,7 +242,7 @@ func createResource[In any, Out any](ctx context.Context, c *OnCallClient, path 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 
 	var result Out
@@ -274,7 +265,7 @@ func updateResource[In any, Out any](ctx context.Context, c *OnCallClient, baseP
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 
 	var result Out
@@ -291,9 +282,29 @@ func deleteResource(ctx context.Context, c *OnCallClient, basePath, id, resource
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return handleErrorResponse(resp)
+		return providers.HandleErrorResponse(resp)
 	}
 	return nil
+}
+
+// listUnpaginated fetches a bare JSON array from an endpoint that does not
+// use the paginated results/next envelope (e.g. enum catalogs).
+func listUnpaginated[T any](ctx context.Context, c *OnCallClient, path, resourceType string) ([]T, error) {
+	resp, err := c.DoRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("irm: list %s: %w", resourceType, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, providers.HandleErrorResponse(resp)
+	}
+
+	var result []T
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("irm: decode %s: %w", resourceType, err)
+	}
+	return result, nil
 }
 
 func pathWithParams(base string, params url.Values) string {
@@ -373,6 +384,12 @@ func (c *OnCallClient) DeleteEscalationPolicy(ctx context.Context, id string) er
 	return deleteResource(ctx, c, escalationPoliciesPath, id, "escalation policy")
 }
 
+// ListEscalationStepOptions fetches the catalog of allowed `step` values from
+// GET /escalation_policies/escalation_options/.
+func (c *OnCallClient) ListEscalationStepOptions(ctx context.Context) ([]EscalationStepOption, error) {
+	return listUnpaginated[EscalationStepOption](ctx, c, escalationPoliciesPath+"escalation_options/", "escalation step option")
+}
+
 // --- Schedules ---
 
 func (c *OnCallClient) ListSchedules(ctx context.Context) ([]Schedule, error) {
@@ -411,7 +428,7 @@ func (c *OnCallClient) ListFilterEvents(ctx context.Context, scheduleID, userTZ,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 
 	var result FilterEventsResponse
@@ -469,6 +486,35 @@ func (c *OnCallClient) DeleteRoute(ctx context.Context, id string) error {
 	return deleteResource(ctx, c, routesPath, id, "route")
 }
 
+// ListRouteFilterTypes reads the allowed filtering_term_type values from the
+// DRF OPTIONS metadata on /channel_filters/ — the backend exposes no
+// dedicated discovery endpoint for this enum.
+func (c *OnCallClient) ListRouteFilterTypes(ctx context.Context) ([]RouteFilterType, error) {
+	resp, err := c.DoRequest(ctx, http.MethodOptions, routesPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("irm: list route filter types: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, providers.HandleErrorResponse(resp)
+	}
+
+	var meta struct {
+		Actions struct {
+			Post struct {
+				FilteringTermType struct {
+					Choices []RouteFilterType `json:"choices"`
+				} `json:"filtering_term_type"`
+			} `json:"POST"`
+		} `json:"actions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return nil, fmt.Errorf("irm: decode route filter types: %w", err)
+	}
+	return meta.Actions.Post.FilteringTermType.Choices, nil
+}
+
 // --- Webhooks ---
 
 func (c *OnCallClient) ListWebhooks(ctx context.Context) ([]Webhook, error) {
@@ -489,6 +535,38 @@ func (c *OnCallClient) UpdateWebhook(ctx context.Context, id string, w Webhook) 
 
 func (c *OnCallClient) DeleteWebhook(ctx context.Context, id string) error {
 	return deleteResource(ctx, c, webhooksPath, id, "webhook")
+}
+
+// ListWebhookPresets fetches webhook configuration presets from
+// GET /webhooks/preset_options/.
+func (c *OnCallClient) ListWebhookPresets(ctx context.Context) ([]WebhookPreset, error) {
+	return listUnpaginated[WebhookPreset](ctx, c, webhooksPath+"preset_options/", "webhook preset")
+}
+
+// ListWebhookTriggerOptions reads the full trigger_type enum from the
+// trigger_type entry of GET /webhooks/filters/ — the only endpoint that
+// surfaces the complete catalog (presets only list their own subset).
+// Options are decoded lazily because other filter entries (e.g. preset)
+// carry string-valued options.
+func (c *OnCallClient) ListWebhookTriggerOptions(ctx context.Context) ([]WebhookTriggerOption, error) {
+	filters, err := listUnpaginated[struct {
+		Name    string          `json:"name"`
+		Options json.RawMessage `json:"options"`
+	}](ctx, c, webhooksPath+"filters/", "webhook trigger option")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range filters {
+		if f.Name != "trigger_type" {
+			continue
+		}
+		var options []WebhookTriggerOption
+		if err := json.Unmarshal(f.Options, &options); err != nil {
+			return nil, fmt.Errorf("irm: decode webhook trigger options: %w", err)
+		}
+		return options, nil
+	}
+	return nil, errors.New("irm: webhooks/filters/ response has no trigger_type filter")
 }
 
 // --- Alert Groups ---
@@ -568,7 +646,7 @@ func (c *OnCallClient) SilenceAlertGroup(ctx context.Context, id string, delaySe
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return handleErrorResponse(resp)
+		return providers.HandleErrorResponse(resp)
 	}
 	return nil
 }
@@ -592,7 +670,7 @@ func (c *OnCallClient) alertGroupAction(ctx context.Context, id, action string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return handleErrorResponse(resp)
+		return providers.HandleErrorResponse(resp)
 	}
 	return nil
 }
@@ -614,7 +692,7 @@ func (c *OnCallClient) GetCurrentUser(ctx context.Context) (*User, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 	var user User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
@@ -669,7 +747,7 @@ func (c *OnCallClient) GetOrganization(ctx context.Context) (*Organization, erro
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 	var org Organization
 	if err := json.NewDecoder(resp.Body).Decode(&org); err != nil {
@@ -737,7 +815,7 @@ func (c *OnCallClient) TakeShiftSwap(ctx context.Context, id string, input TakeS
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, handleErrorResponse(resp)
+		return nil, providers.HandleErrorResponse(resp)
 	}
 	var result ShiftSwap
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

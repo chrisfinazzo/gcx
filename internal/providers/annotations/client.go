@@ -57,12 +57,12 @@ func (c *Client) List(ctx context.Context, opts ListOptions) ([]Annotation, erro
 		path += "?" + params.Encode()
 	}
 
-	return coreapi.DoJSON[any, []Annotation](ctx, c.base, http.MethodGet, path, nil, http.StatusOK)
+	return coreapi.DoJSON[[]Annotation](ctx, c.base, http.MethodGet, path, nil, http.StatusOK)
 }
 
 // Get retrieves a single annotation by ID.
 func (c *Client) Get(ctx context.Context, id int64) (*Annotation, error) {
-	a, err := coreapi.DoJSON[any, Annotation](ctx, c.base, http.MethodGet, fmt.Sprintf("%s/%d", basePath, id), nil, http.StatusOK)
+	a, err := coreapi.DoJSON[Annotation](ctx, c.base, http.MethodGet, fmt.Sprintf("%s/%d", basePath, id), nil, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (c *Client) Create(ctx context.Context, a *Annotation) error {
 	type createResp struct {
 		ID int64 `json:"id"`
 	}
-	res, err := coreapi.DoJSON[Annotation, createResp](ctx, c.base, http.MethodPost, basePath, a, http.StatusOK)
+	res, err := coreapi.DoJSON[createResp](ctx, c.base, http.MethodPost, basePath, a, http.StatusOK)
 	if err != nil {
 		return err
 	}
@@ -86,17 +86,17 @@ func (c *Client) Create(ctx context.Context, a *Annotation) error {
 // Update patches an existing annotation. The patch map may include any subset
 // of text, tags, time, timeEnd.
 func (c *Client) Update(ctx context.Context, id int64, patch map[string]any) error {
-	return coreapi.DoStatus[map[string]any](ctx, c.base, http.MethodPatch, fmt.Sprintf("%s/%d", basePath, id), &patch, http.StatusOK)
+	return coreapi.DoStatus(ctx, c.base, http.MethodPatch, fmt.Sprintf("%s/%d", basePath, id), &patch, http.StatusOK)
 }
 
 // Delete removes an annotation by ID.
 func (c *Client) Delete(ctx context.Context, id int64) error {
-	return coreapi.DoStatus[any](ctx, c.base, http.MethodDelete, fmt.Sprintf("%s/%d", basePath, id), nil, http.StatusOK)
+	return coreapi.DoStatus(ctx, c.base, http.MethodDelete, fmt.Sprintf("%s/%d", basePath, id), nil, http.StatusOK)
 }
 
 // Tags returns the annotation tags known to the org, with usage counts.
 func (c *Client) Tags(ctx context.Context) ([]AnnotationTag, error) {
-	res, err := coreapi.DoJSON[any, tagsResponse](ctx, c.base, http.MethodGet, basePath+"/tags", nil, http.StatusOK)
+	res, err := coreapi.DoJSON[tagsResponse](ctx, c.base, http.MethodGet, basePath+"/tags", nil, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -106,5 +106,5 @@ func (c *Client) Tags(ctx context.Context) ([]AnnotationTag, error) {
 // MassDelete deletes multiple annotations selected by the given request
 // (by annotation ID, or by dashboard + panel).
 func (c *Client) MassDelete(ctx context.Context, req MassDeleteRequest) error {
-	return coreapi.DoStatus[MassDeleteRequest](ctx, c.base, http.MethodPost, basePath+"/mass-delete", &req, http.StatusOK)
+	return coreapi.DoStatus(ctx, c.base, http.MethodPost, basePath+"/mass-delete", &req, http.StatusOK)
 }

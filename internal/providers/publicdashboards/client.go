@@ -36,7 +36,7 @@ func dashboardItemPath(dashboardUID, pdUID string) string {
 
 // List returns all public dashboards in the stack.
 func (c *Client) List(ctx context.Context) ([]PublicDashboard, error) {
-	wrapper, err := coreapi.DoJSON[any, listResp](ctx, c.base, http.MethodGet, listPath, nil, http.StatusOK)
+	wrapper, err := coreapi.DoJSON[listResp](ctx, c.base, http.MethodGet, listPath, nil, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (c *Client) List(ctx context.Context) ([]PublicDashboard, error) {
 
 // Get returns the public dashboard config for the given parent dashboard UID.
 func (c *Client) Get(ctx context.Context, dashboardUID string) (*PublicDashboard, error) {
-	pd, err := coreapi.DoJSON[any, PublicDashboard](ctx, c.base, http.MethodGet, dashboardPath(dashboardUID), nil, http.StatusOK)
+	pd, err := coreapi.DoJSON[PublicDashboard](ctx, c.base, http.MethodGet, dashboardPath(dashboardUID), nil, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (c *Client) Get(ctx context.Context, dashboardUID string) (*PublicDashboard
 
 // Create creates a new public dashboard config for the given parent dashboard UID.
 func (c *Client) Create(ctx context.Context, dashboardUID string, pd *PublicDashboard) (*PublicDashboard, error) {
-	created, err := coreapi.DoJSON[PublicDashboard, PublicDashboard](ctx, c.base, http.MethodPost, dashboardPath(dashboardUID), pd, http.StatusOK)
+	created, err := coreapi.DoJSON[PublicDashboard](ctx, c.base, http.MethodPost, dashboardPath(dashboardUID), pd, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (c *Client) Create(ctx context.Context, dashboardUID string, pd *PublicDash
 
 // Update patches an existing public dashboard config.
 func (c *Client) Update(ctx context.Context, dashboardUID, pdUID string, pd *PublicDashboard) (*PublicDashboard, error) {
-	updated, err := coreapi.DoJSON[PublicDashboard, PublicDashboard](ctx, c.base, http.MethodPatch, dashboardItemPath(dashboardUID, pdUID), pd, http.StatusOK)
+	updated, err := coreapi.DoJSON[PublicDashboard](ctx, c.base, http.MethodPatch, dashboardItemPath(dashboardUID, pdUID), pd, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
@@ -72,5 +72,5 @@ func (c *Client) Update(ctx context.Context, dashboardUID, pdUID string, pd *Pub
 
 // Delete removes a public dashboard config.
 func (c *Client) Delete(ctx context.Context, dashboardUID, pdUID string) error {
-	return coreapi.DoStatus[any](ctx, c.base, http.MethodDelete, dashboardItemPath(dashboardUID, pdUID), nil, http.StatusOK)
+	return coreapi.DoStatus(ctx, c.base, http.MethodDelete, dashboardItemPath(dashboardUID, pdUID), nil, http.StatusOK)
 }

@@ -121,7 +121,7 @@ func (opts *Options) LoadConfig(ctx context.Context) (config.Config, error) {
 			return config.ContextNotFound(cfg.CurrentContext)
 		}
 
-		return cfg.GetCurrentContext().Validate()
+		return cfg.GetCurrentContext().Validate(ctx)
 	}
 
 	return opts.LoadConfigTolerant(ctx, validator)
@@ -131,18 +131,26 @@ func (opts *Options) LoadConfig(ctx context.Context) (config.Config, error) {
 // When OAuth proxy mode is active, it wires the OnRefresh callback to persist
 // refreshed tokens back to the config file.
 func (opts *Options) LoadGrafanaConfig(ctx context.Context) (config.NamespacedRESTConfig, error) {
+	restCfg, _, err := opts.LoadGrafanaConfigWithContext(ctx)
+	return restCfg, err
+}
+
+// LoadGrafanaConfigWithContext is like LoadGrafanaConfig but also returns the current
+// Context, so callers can read its per-context settings.
+func (opts *Options) LoadGrafanaConfigWithContext(ctx context.Context) (config.NamespacedRESTConfig, *config.Context, error) {
 	cfg, err := opts.LoadConfig(ctx)
 	if err != nil {
-		return config.NamespacedRESTConfig{}, err
+		return config.NamespacedRESTConfig{}, nil, err
 	}
 
-	restCfg, err := cfg.GetCurrentContext().ToRESTConfig(ctx)
+	current := cfg.GetCurrentContext()
+	restCfg, err := current.ToRESTConfig(ctx)
 	if err != nil {
-		return config.NamespacedRESTConfig{}, err
+		return config.NamespacedRESTConfig{}, nil, err
 	}
 	restCfg.WireTokenPersistence(ctx, opts.ConfigSource(), cfg.CurrentContext, cfg.Sources)
 
-	return restCfg, nil
+	return restCfg, current, nil
 }
 
 // loadConfigTolerantLayered loads the configuration using the layered discovery
@@ -400,7 +408,7 @@ func checkContext(cmd *cobra.Command, cfg config.Config, gCtx *config.Context, s
 	cmd.Println(cmdio.Yellow(title))
 	cmd.Println(cmdio.Yellow(strings.Repeat("=", titleLen)))
 
-	if err := gCtx.Validate(); err != nil {
+	if err := gCtx.Validate(cmd.Context()); err != nil {
 		cmdio.Error(stdout, "Configuration: %s", cmdio.Red(summarizeError(err)))
 		cmdio.Warning(stdout, "Connectivity: %s", cmdio.Yellow("skipped"))
 		cmdio.Warning(stdout, "Grafana version: %s", cmdio.Yellow("skipped")+"\n")

@@ -1,7 +1,7 @@
 ---
 name: manage-dashboards
 description: >
-  Use for operational management of existing Grafana dashboards: list, get,
+  Manages existing Grafana dashboards operationally via gcx: list, get,
   search, create or update from an already-authored manifest, delete, inspect
   and restore versions, pull/push/validate/promote dashboard resource files,
   manage dashboard folders, or render PNG snapshots. Do NOT use when the task
@@ -80,7 +80,7 @@ Use JSON/YAML for programmatic work and table/wide output for human summaries.
 | Create from finished file | `gcx dashboards create -f <dashboard.yaml>` |
 | Update from finished file | `gcx dashboards update <dashboard-name> -f <dashboard.yaml>` |
 | Delete with confirmation | `gcx dashboards delete <dashboard-name>` |
-| Delete non-interactively | `gcx dashboards delete <dashboard-name> --yes` |
+| Delete non-interactively | `gcx dashboards delete <dashboard-name> --force` |
 | Version history | `gcx dashboards versions list <dashboard-name>` |
 | Restore version | `gcx dashboards versions restore <dashboard-name> <version> --message "<why>"` |
 | Pull dashboards/folders | `gcx resources pull dashboards folders -p <dir> -o yaml` |
@@ -147,7 +147,8 @@ review the newest version, and retry only if the restore is still correct.
 
 ## References
 
-- [`references/resource-operations.md`](references/resource-operations.md) —
-  selector syntax, pull/push/validate flags, and `gcx dev serve` details.
-- [`references/resource-model.md`](references/resource-model.md) — resource
-  structure, manager metadata, folder ordering, and lifecycle behavior.
+- For full flag sets, selector syntax, `--on-error` policy, and the
+  `gcx dev serve` live-reload workflow, read
+  [references/resource-operations.md](references/resource-operations.md).
+- For resource structure, manager metadata, push ordering, and lifecycle
+  behavior, read [references/resource-model.md](references/resource-model.md).
