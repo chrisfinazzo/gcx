@@ -7,6 +7,7 @@ import (
 
 	"github.com/grafana/gcx/internal/agent"
 	cmdio "github.com/grafana/gcx/internal/output"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTruncateCompleteList(t *testing.T) {
@@ -57,8 +58,8 @@ func TestTruncateCompleteList(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, meta := cmdio.TruncateCompleteList(tc.items, tc.limit, "gcx datasources list")
-			assertStrings(t, got, tc.wantItems)
-			assertListMeta(t, meta, tc.wantMeta)
+			assert.Equal(t, tc.wantItems, got)
+			assert.Equal(t, tc.wantMeta, meta)
 		})
 	}
 }
@@ -109,8 +110,8 @@ func TestTruncatePagedList(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, meta := cmdio.TruncatePagedList(tc.items, tc.limit, "gcx things list")
-			assertStrings(t, got, tc.wantItems)
-			assertListMeta(t, meta, tc.wantMeta)
+			assert.Equal(t, tc.wantItems, got)
+			assert.Equal(t, tc.wantMeta, meta)
 		})
 	}
 }
@@ -153,7 +154,7 @@ func TestPagedListMeta(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := cmdio.PagedListMeta(tc.returned, tc.limit, tc.serverHasMore, "gcx irm oncall alert-groups list")
-			assertListMeta(t, got, tc.want)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -232,36 +233,5 @@ func TestListMetaJSONShape(t *testing.T) {
 				t.Errorf("json = %s, want %s", b, tc.want)
 			}
 		})
-	}
-}
-
-func assertStrings(t *testing.T, got, want []string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("items = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("items = %v, want %v", got, want)
-		}
-	}
-}
-
-func assertListMeta(t *testing.T, got, want *cmdio.ListMeta) {
-	t.Helper()
-	if (got == nil) != (want == nil) {
-		t.Fatalf("meta = %+v, want %+v", got, want)
-	}
-	if got == nil {
-		return
-	}
-	if got.Truncated != want.Truncated || got.Returned != want.Returned || got.Continue != want.Continue {
-		t.Errorf("meta = %+v, want %+v", got, want)
-	}
-	if (got.Total == nil) != (want.Total == nil) {
-		t.Fatalf("meta.Total = %v, want %v", got.Total, want.Total)
-	}
-	if got.Total != nil && *got.Total != *want.Total {
-		t.Errorf("meta.Total = %d, want %d", *got.Total, *want.Total)
 	}
 }
