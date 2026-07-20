@@ -2,6 +2,7 @@ package investigations_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,7 +129,16 @@ func TestProfilesTableCodec_Encode(t *testing.T) {
 		out := buf.String()
 		assert.Contains(t, out, "DESCRIPTION")
 		assert.Contains(t, out, "Standard investigation profile")
-		assert.Contains(t, out, "-") // empty description
+		// The empty description renders as "-" in the trailing DESCRIPTION
+		// column of the deep-dive row.
+		var deepDiveRow string
+		for line := range strings.SplitSeq(out, "\n") {
+			if strings.HasPrefix(line, "deep-dive") {
+				deepDiveRow = line
+			}
+		}
+		require.NotEmpty(t, deepDiveRow)
+		assert.True(t, strings.HasSuffix(strings.TrimRight(deepDiveRow, " "), "-"), "row: %q", deepDiveRow)
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
