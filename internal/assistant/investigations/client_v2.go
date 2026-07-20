@@ -23,6 +23,7 @@ const (
 	v2ModeFmt            = v2InvestigationsBase + "/%s/mode"
 	v2ShareFmt           = v2InvestigationsBase + "/%s/share"
 	v2ReportRegenFmt     = v2InvestigationsBase + "/%s/report/regenerate"
+	v2EvidenceFmt        = v2InvestigationsBase + "/%s/evidence"
 )
 
 // CreateLodestone starts a new investigation against /api/v2/investigations.
@@ -157,6 +158,14 @@ func (c *Client) Resume(ctx context.Context, id string) (*Message, error) {
 func (c *Client) RegenerateReport(ctx context.Context, id string) (*Message, error) {
 	path := fmt.Sprintf(v2ReportRegenFmt, url.PathEscape(id))
 	return assistanthttp.DoEnvelopeRequest[Message](c.base, ctx, http.MethodPost, path, nil, "regenerate investigation report")
+}
+
+// Evidence returns the panel evidence index for an investigation — the
+// canonical mapping from report citation keys (panel IDs) to the tool and
+// query that produced each panel.
+func (c *Client) Evidence(ctx context.Context, id string) (*EvidenceResponse, error) {
+	path := fmt.Sprintf(v2EvidenceFmt, url.PathEscape(id))
+	return assistanthttp.DoEnvelopeRequest[EvidenceResponse](c.base, ctx, http.MethodGet, path, nil, "get investigation evidence")
 }
 
 // SetMode changes the autonomy mode of a running investigation.

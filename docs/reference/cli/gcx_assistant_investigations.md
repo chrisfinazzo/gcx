@@ -28,6 +28,7 @@ Manage Grafana Assistant investigations.
 * [gcx assistant investigations chat](gcx_assistant_investigations_chat.md)	 - Show the chat thread for a v2 investigation.
 * [gcx assistant investigations create](gcx_assistant_investigations_create.md)	 - Create a new investigation.
 * [gcx assistant investigations document](gcx_assistant_investigations_document.md)	 - Fetch a specific investigation document.
+* [gcx assistant investigations evidence](gcx_assistant_investigations_evidence.md)	 - Show the panel evidence index for a v2 investigation.
 * [gcx assistant investigations get](gcx_assistant_investigations_get.md)	 - Get investigation detail.
 * [gcx assistant investigations list](gcx_assistant_investigations_list.md)	 - List investigations.
 * [gcx assistant investigations mode](gcx_assistant_investigations_mode.md)	 - Change autonomy mode of a v2 investigation.

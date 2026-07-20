@@ -84,6 +84,7 @@ func Commands(loader *providers.ConfigLoader) *cobra.Command {
 		newResumeCommand(loader),
 		newModeCommand(loader),
 		newShareCommand(loader),
+		newEvidenceCommand(loader),
 		newRegenerateReportCommand(loader),
 		newChatCommand(loader),
 		newNarrativeCommand(loader),
