@@ -196,6 +196,34 @@ func TestListLodestone_LosslessSummary(t *testing.T) {
 	assert.Equal(t, 2, s.ActiveLoopCount)
 }
 
+// TestLodestoneSummary_RequiredFieldsSerialized pins the required-vs-omitempty
+// split against the server schema: title, description, and chatId are always
+// serialized by the API, so gcx json output must keep them (as "") even when
+// empty — dropping them would turn "" into null under --json selection.
+func TestLodestoneSummary_RequiredFieldsSerialized(t *testing.T) {
+	data, err := json.Marshal(investigations.LodestoneInvestigationSummary{ID: "inv-1", State: "pending"})
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	for _, key := range []string{"id", "title", "description", "state", "chatId", "createdAt", "updatedAt"} {
+		assert.Contains(t, m, key, "required summary field %q must serialize even when empty", key)
+	}
+	for _, key := range []string{"variant", "tokensUsed", "source", "agents", "progress", "completionQuality", "degradedReason", "labels", "ownerUserId", "activeLoopCount"} {
+		assert.NotContains(t, m, key, "optional summary field %q must stay omitempty like the server's", key)
+	}
+
+	data, err = json.Marshal(investigations.LodestoneAgent{ID: "agent-1"})
+	require.NoError(t, err)
+	m = nil
+	require.NoError(t, json.Unmarshal(data, &m))
+	for _, key := range []string{"id", "name", "task", "status", "audience", "createdAt", "updatedAt"} {
+		assert.Contains(t, m, key, "required agent field %q must serialize even when empty", key)
+	}
+	for _, key := range []string{"finalMessage", "tokensPerSecondHistory", "tokenCounter", "outputPreview"} {
+		assert.NotContains(t, m, key, "optional agent field %q must stay omitempty like the server's", key)
+	}
+}
+
 func TestResolveByID(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

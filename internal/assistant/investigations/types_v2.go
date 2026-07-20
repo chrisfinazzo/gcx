@@ -55,14 +55,15 @@ type LodestoneList struct {
 func (LodestoneList) ListItemsKey() string { return "investigations" }
 
 // LodestoneInvestigationSummary is a v2 list item. It mirrors the server's
-// summary shape field-for-field so no data is dropped from json/yaml output.
-// The deprecated `confidence` field (always null server-side) is omitted.
+// summary shape field-for-field — including which fields carry omitempty —
+// so no data is dropped or reshaped in json/yaml output. The deprecated
+// `confidence` field (always null server-side) is omitted.
 type LodestoneInvestigationSummary struct {
 	ID          string    `json:"id"`
-	Title       string    `json:"title,omitempty"`
-	Description string    `json:"description,omitempty"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
 	State       string    `json:"state"`
-	ChatID      string    `json:"chatId,omitempty"`
+	ChatID      string    `json:"chatId"`
 	Variant     string    `json:"variant,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -82,7 +83,7 @@ type LodestoneInvestigationSummary struct {
 // LodestoneSource identifies what created an investigation
 // (type: url|user|assistant).
 type LodestoneSource struct {
-	Type   string `json:"type,omitempty"`
+	Type   string `json:"type"`
 	Value  string `json:"value,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
 	ChatID string `json:"chatId,omitempty"`
@@ -93,13 +94,13 @@ type LodestoneSource struct {
 // (view=full only).
 type LodestoneAgent struct {
 	ID                     string    `json:"id"`
-	Name                   string    `json:"name,omitempty"`
-	Task                   string    `json:"task,omitempty"`
+	Name                   string    `json:"name"`
+	Task                   string    `json:"task"`
 	FinalMessage           *string   `json:"finalMessage,omitempty"`
-	Status                 string    `json:"status,omitempty"`
-	Audience               string    `json:"audience,omitempty"`
-	CreatedAt              time.Time `json:"createdAt,omitzero"`
-	UpdatedAt              time.Time `json:"updatedAt,omitzero"`
+	Status                 string    `json:"status"`
+	Audience               string    `json:"audience"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 	TokensPerSecondHistory []float64 `json:"tokensPerSecondHistory,omitempty"`
 	TokenCounter           *int64    `json:"tokenCounter,omitempty"`
 	OutputPreview          *string   `json:"outputPreview,omitempty"`
