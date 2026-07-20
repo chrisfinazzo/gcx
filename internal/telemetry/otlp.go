@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grafana/gcx/internal/httputils"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -26,7 +27,8 @@ const exportTimeout = time.Second
 
 // Export sends the event to the usage-stats receiver as one OTLP root span.
 // It never reports failure: telemetry is fire-and-forget and must not affect
-// the command's outcome. No retries — a lost event is fine.
+// the command's outcome. A lost event is fine — the shared client may retry
+// transient failures, but exportTimeout caps the whole exchange.
 func Export(event Event, start time.Time) {
 	endpoint := defaultEndpoint
 	override := os.Getenv(envEndpoint)
@@ -46,7 +48,7 @@ func export(event Event, start time.Time, endpoint string) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/x-protobuf")
-	client := &http.Client{Timeout: exportTimeout}
+	client := httputils.NewClient(httputils.ClientOpts{Timeout: exportTimeout})
 	resp, err := client.Do(req)
 	if err != nil {
 		return
@@ -54,7 +56,7 @@ func export(event Event, start time.Time, endpoint string) {
 	_ = resp.Body.Close()
 }
 
-// encodeTracesData writes the vent into a trace structure. The usage-stats
+// encodeTracesData writes the event into a trace structure. The usage-stats
 // receiver expects one root span. Use TracesData instead of
 // ExportTraceServiceRequest in otlp/collector/trace/v1 to save import package
 // weight (it saves about 6MB).
