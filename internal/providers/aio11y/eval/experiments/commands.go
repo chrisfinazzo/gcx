@@ -148,8 +148,8 @@ func (o *getOpts) setup(flags *pflag.FlagSet) {
 func newGetCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &getOpts{}
 	cmd := &cobra.Command{
-		Use:   "get <experiment-id>",
-		Short: "Get a single experiment by ID.",
+		Use:   "get <run-id>",
+		Short: "Get a single experiment by run ID.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
@@ -208,10 +208,10 @@ func newCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
 		Use:   "create",
 		Short: "Create a new experiment from a JSON or YAML file.",
 		Example: `  # Create from a YAML file.
-  gcx aio11y experiments create -f experiment.yaml
+  gcx agento11y experiments create -f experiment.yaml
 
   # Create from stdin.
-  cat experiment.json | gcx aio11y experiments create -f -`,
+  cat experiment.json | gcx agento11y experiments create -f -`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := opts.Validate(); err != nil {
 				return err
@@ -264,7 +264,7 @@ func (o *updateOpts) setup(flags *pflag.FlagSet) {
 func newUpdateCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &updateOpts{}
 	cmd := &cobra.Command{
-		Use:   "update <experiment-id>",
+		Use:   "update <run-id>",
 		Short: "Patch an experiment's mutable fields.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -321,7 +321,7 @@ func (o *cancelOpts) setup(flags *pflag.FlagSet) {
 func newCancelCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &cancelOpts{}
 	cmd := &cobra.Command{
-		Use:   "cancel <experiment-id>",
+		Use:   "cancel <run-id>",
 		Short: "Cancel a running experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -367,7 +367,7 @@ func (o *scoresOpts) setup(flags *pflag.FlagSet) {
 func newScoresCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &scoresOpts{}
 	cmd := &cobra.Command{
-		Use:   "scores <experiment-id>",
+		Use:   "scores <run-id>",
 		Short: "List scores produced by an experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -405,7 +405,7 @@ func (o *reportOpts) setup(flags *pflag.FlagSet) {
 func newReportCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &reportOpts{}
 	cmd := &cobra.Command{
-		Use:   "report <experiment-id>",
+		Use:   "report <run-id>",
 		Short: "Fetch the aggregate report for an experiment.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -733,7 +733,7 @@ func newCasesListCommand(loader *providers.ConfigLoader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list <suite-id> <version>",
 		Short: "List test cases in a suite version.",
-		Args:  exactArgsWithSuggestion(2, "gcx aio11y experiments test-suites cases list <suite-id> <version>"),
+		Args:  exactArgsWithSuggestion(2, "gcx agento11y experiments test-suites cases list <suite-id> <version>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
 				return err
@@ -927,9 +927,9 @@ func (o *trialsListOpts) setup(flags *pflag.FlagSet) {
 func newListTrialsCommand(loader *providers.ConfigLoader) *cobra.Command {
 	opts := &trialsListOpts{}
 	cmd := &cobra.Command{
-		Use:   "list-trials <experiment-id>",
+		Use:   "list-trials <run-id>",
 		Short: "List test case trials for an experiment.",
-		Args:  exactArgsWithSuggestion(1, "gcx aio11y experiments list-trials <experiment-id>"),
+		Args:  exactArgsWithSuggestion(1, "gcx agento11y experiments list-trials <run-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.IO.Validate(); err != nil {
 				return err
@@ -1014,7 +1014,7 @@ func newTrialMutationCommand[T any](
 func newTrialsCreateCommand(loader *providers.ConfigLoader) *cobra.Command {
 	return newTrialMutationCommand[TestCaseTrial](
 		loader,
-		"create <experiment-id>",
+		"create <run-id>",
 		"Create or upsert a test case trial from a JSON or YAML file.",
 		"File containing the trial payload (use - for stdin)",
 		"created",

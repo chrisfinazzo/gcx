@@ -20,7 +20,7 @@ const testCaseTrialsBasePath = "/eval/test-case-trials"
 // other API errors. Callers wrap it with the relevant resource ID.
 var ErrNotFound = errors.New("not found")
 
-// Client wraps the AI Observability plugin proxy with experiment-specific endpoints.
+// Client wraps the Agent Observability plugin proxy with experiment-specific endpoints.
 type Client struct {
 	base *aio11yhttp.Client
 }

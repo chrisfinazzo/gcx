@@ -17,7 +17,7 @@ Query production. Investigate alerts. Let the Assistant root-cause issues. Ship 
 
 ## What is gcx?
 
-gcx is a CLI for Grafana. It gives you and your AI coding agent structured access to your Grafana instance: dashboards, alerts, SLOs, metrics, logs, traces, and more.
+gcx is a CLI for Grafana — Cloud, Enterprise, and OSS alike. It gives you and your AI coding agent structured access to your Grafana instance: dashboards, alerts, SLOs, metrics, logs, traces, and more. Core features (resources, alerting, signal queries) work on any Grafana 12+; Grafana Cloud adds product-specific commands on top.
 
 gcx works with any agentic coding tool. It ships with a suite of agent skills for common workflows like alert investigation, dashboard creation and GitOps, SLO management, and observability setup - ready to use out of the box.
 
@@ -33,11 +33,11 @@ gcx login prod --server https://<your-cloud-instance>.grafana.net  # select oaut
 # For self-hosted Grafana instances
 gcx login local --server http://localhost:3000 --token <token>
 
-# check your grafana cloud metrics usage in the last day
-gcx metrics query -d grafanacloud-usage 'grafanacloud_org_metrics_billable_series'  --since 24h  --step 1h
-
-# check how busy your API routes are
+# check how busy your API routes are (works on any Grafana)
 gcx metrics query 'sum by (handler)(rate(grafana_http_request_duration_seconds_count[5m]))' --since 1h
+
+# check your grafana cloud metrics usage in the last day (Grafana Cloud only)
+gcx metrics query -d grafanacloud-usage 'grafanacloud_org_metrics_billable_series'  --since 24h  --step 1h
 
 # list and search your dashboards
 gcx dashboards list
@@ -273,11 +273,11 @@ For example: OpenAI Codex, OpenCode, and Pi. View the skills shipped in the bund
 
 ```sh
 gcx agent skills list
-22 skill(s) bundled with gcx
+24 skill(s) bundled with gcx
 
 SKILL                      INSTALLED    DESCRIPTION
 create-dashboard           yes          Design and create dashboards with datasource discovery and snapshot-based visual iteration.
-explore-datasources        yes          Discover what datasources, metrics, labels, and log streams are available in a Grafana instance.
+debug-with-grafana         yes          Structured workflow for investigating application problems with Grafana observability data.
 ....
 ```
 
@@ -301,7 +301,7 @@ export GCX_NO_UPDATE_NOTIFIER=1
 
 ## The Agentic Workflow
 
-Here's what it looks like when your coding agent has access to production:
+Here's what it looks like when your coding agent has access to production. This example uses the Grafana Assistant, which requires Grafana Cloud — see the [compatibility matrix](#compatibility); the [workflows below](#beyond-alert-investigation) work on any Grafana.
 
 **1. An alert fires** — P95 latency on the checkout service crosses the SLO threshold.
 
@@ -367,13 +367,15 @@ gcx provides dedicated commands for each Grafana Cloud product:
 | **Knowledge Graph** | `gcx kg` | `kg status`, `kg search`, `kg entities show` |
 | **Frontend Observability** | `gcx frontend` | `frontend apps list`, `frontend apps get` |
 | **App Observability** | `gcx appo11y` | `appo11y overrides get`, `appo11y settings get` |
-| **AI Observability (Sigil)** | `gcx aio11y` | `aio11y conversations list`, `aio11y agents list`, `aio11y rules list` |
+| **Agent Observability** | `gcx agento11y` | `agento11y conversations list`, `agento11y agents list`, `agento11y rules list` |
 | **Assistant** | `gcx assistant` | `assistant prompt`, `assistant investigations list`, `assistant mcp-servers list` |
 | **Adaptive Metrics** | `gcx metrics adaptive` | `metrics adaptive recommendations show`, `metrics adaptive rules list` |
 | **Adaptive Logs** | `gcx logs adaptive` | `logs adaptive patterns show`, `logs adaptive drop-rules list` |
 | **Adaptive Traces** | `gcx traces adaptive` | `traces adaptive recommendations show`, `traces adaptive policies list` |
 | **Profiles (Pyroscope)** | `gcx profiles` | `profiles query`, `profiles labels` |
 | **Traces (Tempo)** | `gcx traces` | `traces query`, `traces get`, `traces labels` |
+
+> **Note — Grafana Cloud costs:** gcx itself is free, but some of these products are billed based on usage: Grafana Assistant per token consumed (including requests made through gcx), Synthetic Monitoring per test execution, k6 per Virtual User Hour, and IRM per monthly active user. Queries and resource push/pull are not billed. See [Costs and billing](docs/reference/costs.md) and the [Grafana Cloud Cost Management and Billing documentation](https://grafana.com/docs/grafana-cloud/cost-management-and-billing/).
 
 ## Resource Management
 

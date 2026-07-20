@@ -3,10 +3,10 @@
 ```yaml
 # Config holds the information needed to connect to remote Grafana instances.
 # Contexts is a map of context configurations, indexed by name.
-contexts: 
+contexts:
   ${string}:
     # Context holds the information required to connect to a remote Grafana instance.
-    grafana: 
+    grafana:
       # Server is the address of the Grafana server (https://hostname:port/path).
       # Required.
       server: string
@@ -46,7 +46,7 @@ contexts:
       # See OrgID for on-prem Grafana instances.
       stack-id: int
       # TLS contains TLS-related configuration settings.
-      tls: 
+      tls:
         # TLS contains settings to enable transport layer security.
         # InsecureSkipTLSVerify disables the validation of the server's SSL certificate.
         # Enabling this will make your HTTPS connections insecure.
@@ -66,33 +66,33 @@ contexts:
         # CertData holds PEM-encoded bytes (typically read from a client certificate file).
         # Note: this value is base64-encoded in the config file and will be
         # automatically decoded.
-        cert-data: 
+        cert-data:
           - int
           - ...
-          
+
         # KeyData holds PEM-encoded bytes (typically read from a client certificate key file).
         # Note: this value is base64-encoded in the config file and will be
         # automatically decoded.
-        key-data: 
+        key-data:
           - int
           - ...
-          
+
         # CAData holds PEM-encoded bytes (typically read from a root certificates bundle).
         # Note: this value is base64-encoded in the config file and will be
         # automatically decoded.
-        ca-data: 
+        ca-data:
           - int
           - ...
-          
+
         # NextProtos is a list of supported application level protocols, in order of preference.
         # Used to populate tls.Config.NextProtos.
         # To indicate to the server http/1.1 is preferred over http/2, set to ["http/1.1", "h2"] (though the server is free to ignore that preference).
         # To use only http/1.1, set to ["http/1.1"].
-        next-protos: 
+        next-protos:
           - string
           - ...
-          
-    cloud: 
+
+    cloud:
       # CloudConfig holds Grafana Cloud platform credentials and configuration.
       # Token is a Grafana Cloud API token used to authenticate against GCOM.
       token: string
@@ -117,21 +117,31 @@ contexts:
     default-tempo-datasource: string
     # Datasources holds per-kind default datasource UIDs, indexed by datasource kind (e.g. "prometheus", "loki").
     # Takes precedence over the legacy DefaultXxxDatasource fields when both are set.
-    datasources: 
+    datasources:
       ${string}:
         string
     # Providers holds per-provider configuration, indexed by provider name.
     # Each provider has a map of string key-value pairs.
     # Secret fields are selectively redacted by providers.RedactSecrets using
     # each provider's ConfigKey metadata.
-    providers: 
+    providers:
       ${string}:
         ${string}:
           string
+    # Resources holds settings for the `gcx resources` commands in this context.
+    resources:
+      # ResourcesConfig holds per-context settings for the `gcx resources` commands.
+      # AssumeServerDryRun lists resources ("<resource>.<group>", e.g.
+      # "alertrules.rules.alerting.grafana.app") the user asserts honor server-side dry-run on
+      # this stack, added to the built-in allowlist so --dry-run sends them to the server.
+      assume-server-dry-run:
+        - string
+        - ...
+
 # CurrentContext is the name of the context currently in use.
 current-context: string
 # Diagnostics holds optional local diagnostic settings. All features are off by default.
-diagnostics: 
+diagnostics:
   # DiagnosticsConfig controls optional local diagnostic features.
   # AgentInvocationLog enables logging of failed agent-mode invocations to disk.
   # Off by default. When enabled, errors from agent-driven gcx calls are written

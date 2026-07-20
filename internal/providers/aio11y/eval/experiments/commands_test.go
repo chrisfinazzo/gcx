@@ -196,7 +196,7 @@ func TestTrialsListCommand_RequiresExperimentIDWithSuggestion(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expected format: gcx aio11y experiments list-trials <experiment-id>")
+	assert.Contains(t, err.Error(), "expected format: gcx agento11y experiments list-trials <run-id>")
 }
 
 func TestCasesListCommand_RequiresSuiteAndVersionWithSuggestion(t *testing.T) {
@@ -209,7 +209,7 @@ func TestCasesListCommand_RequiresSuiteAndVersionWithSuggestion(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expected format: gcx aio11y experiments test-suites cases list <suite-id> <version>")
+	assert.Contains(t, err.Error(), "expected format: gcx agento11y experiments test-suites cases list <suite-id> <version>")
 }
 
 func TestReportCommand_RequiresArg(t *testing.T) {
