@@ -317,3 +317,27 @@ func TestGetCommand_V1FallbackUnchanged(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": "inv-legacy", "title": "Legacy detail"}, got)
 	assert.NotContains(t, got, "chatId")
 }
+
+// TestGetCommand_V2NilSnapshotDoesNotPanic verifies a 200 snapshot response
+// with a null data envelope (decoded as a nil map) doesn't panic on the
+// chatId injection and still surfaces the resolved chatId.
+func TestGetCommand_V2NilSnapshotDoesNotPanic(t *testing.T) {
+	t.Setenv("GCX_ASSISTANT_API_VERSION", "v2")
+	t.Setenv("GCX_AGENT_MODE", "false")
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case v2InvestigationsPath + "/inv-1":
+			writeJSON(w, map[string]any{
+				"data": investigations.ResolveByIDResponse{InvestigationID: "inv-1", ChatID: "chat-1"},
+			})
+		case v2InvestigationsPath + "/inv-1/snapshot":
+			writeJSON(w, map[string]any{"data": nil})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	got := runGetJSON(t, newGetLoader(t, handler), "inv-1")
+	assert.Equal(t, map[string]any{"chatId": "chat-1"}, got)
+}

@@ -312,7 +312,11 @@ func getV2State(cmd *cobra.Command, client *Client, id string) (LodestoneState, 
 	// The snapshot carries investigationId but not the backing chatId, which
 	// the chat/narrative/tools subcommands key on — surface the resolved one.
 	// Only set when absent so a future server-provided chatId wins over the
-	// injection.
+	// injection. A 200 with an empty envelope decodes to a nil map — allocate
+	// so the injection can't panic.
+	if state == nil {
+		state = LodestoneState{}
+	}
 	if _, ok := state["chatId"]; !ok {
 		state["chatId"] = resp.ChatID
 	}
