@@ -28,9 +28,10 @@ const exportTimeout = time.Second
 // It never reports failure: telemetry is fire-and-forget and must not affect
 // the command's outcome. No retries — a lost event is fine.
 func Export(event Event, start time.Time) {
-	endpoint := os.Getenv(envEndpoint)
-	if endpoint == "" {
-		endpoint = defaultEndpoint
+	endpoint := defaultEndpoint
+	override := os.Getenv(envEndpoint)
+	if override != "" {
+		endpoint = override
 	}
 	export(event, start, endpoint)
 }
@@ -53,12 +54,10 @@ func export(event Event, start time.Time, endpoint string) {
 	_ = resp.Body.Close()
 }
 
-// encodeTracesData lays the event out on the wire as the receiver expects:
-// exactly one root span whose resource carries the envelope fields and whose
-// attributes carry the event fields; the span start/end times carry the
-// duration. TracesData is wire-identical to the OTLP/HTTP
-// ExportTraceServiceRequest, without importing the collector packages (whose
-// generated code depends on grpc).
+// encodeTracesData writes the vent into a trace structure. The usage-stats
+// receiver expects one root span. Use TracesData instead of
+// ExportTraceServiceRequest in otlp/collector/trace/v1 to save import package
+// weight (it saves about 6MB).
 func encodeTracesData(event Event, start time.Time) *tracepb.TracesData {
 	end := start.Add(time.Duration(event.DurationMS) * time.Millisecond)
 	span := &tracepb.Span{

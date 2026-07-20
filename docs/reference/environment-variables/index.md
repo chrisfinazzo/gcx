@@ -26,8 +26,7 @@ nothing). Takes precedence over DO_NOT_TRACK and the
 
 ## `GCX_TELEMETRY_ENDPOINT`
 
-Endpoint overrides the URL usage telemetry is sent to, for pointing
-test builds at a non-production receiver.
+Endpoint overrides the URL usage telemetry is sent to.
 
 ## `GRAFANA_CLOUD_API_URL`
 

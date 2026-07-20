@@ -44,8 +44,7 @@ type Env struct {
 	// GCX_TELEMETRY.
 	DoNotTrack string `env:"DO_NOT_TRACK"`
 
-	// Endpoint overrides the URL usage telemetry is sent to, for pointing
-	// test builds at a non-production receiver.
+	// Endpoint overrides the URL usage telemetry is sent to.
 	Endpoint string `env:"GCX_TELEMETRY_ENDPOINT"`
 }
 
