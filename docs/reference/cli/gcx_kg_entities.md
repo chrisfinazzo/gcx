@@ -6,11 +6,17 @@ Manage Knowledge Graph entities.
 
 Manage Knowledge Graph entities.
 
-Prefer 'list' for listing and for basic lookups (an entity's identity and
-properties — the labels used to build PromQL/Loki queries); it is cheap. Use
-'inspect' only when you need an entity's insight timeline or related entities
-for root-cause analysis — it is heavier and can return large output,
-so don't use it just to read properties.
+Pick the read verb by what you start with:
+
+  correlate  You have a firing alert (its labels) but not the entity → find
+             which entity the alert hangs off. The "I have an alert, which
+             entity is it?" entry point.
+  list       You know the entity type (and maybe scope) → cheap identity +
+             properties lookup (the labels used to build PromQL/Loki queries).
+             The default for listing or basic lookups.
+  inspect    You know the specific entity → heavy root-cause view: insight
+             timeline + related entities. Don't use it just to read properties.
+  query      You want arbitrary Cypher over the graph.
 
 ### Options
 
@@ -33,6 +39,7 @@ so don't use it just to read properties.
 ### SEE ALSO
 
 * [gcx kg](gcx_kg.md)	 - Manage Grafana Knowledge Graph rules, entities, and insights
+* [gcx kg entities correlate](gcx_kg_entities_correlate.md)	 - Resolve the affected entities for a firing alert from its labels.
 * [gcx kg entities create](gcx_kg_entities_create.md)	 - Create or update a custom entity (upsert) [experimental].
 * [gcx kg entities delete](gcx_kg_entities_delete.md)	 - Delete a custom entity [experimental].
 * [gcx kg entities inspect](gcx_kg_entities_inspect.md)	 - Show the insight timeline and related entities for a single entity (root-cause analysis).
