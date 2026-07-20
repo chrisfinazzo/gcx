@@ -2,6 +2,7 @@ package investigations_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,7 +132,25 @@ func TestEvidenceTableCodec_Encode(t *testing.T) {
 		assert.Contains(t, out, "toolu_1")
 		// Wide shows the full query and "-" for a missing tool use ID.
 		assert.Contains(t, out, "rate(http_requests_total{job=\"api\",cluster=\"prod\"}[5m])")
-		assert.Contains(t, out, "-")
+		assert.Regexp(t, `(?m)^p4\s+loki\s+short\s+3\s+2026-07-20T10:05:00Z\s+-$`, out)
+	})
+
+	t.Run("multi-line query flattened", func(t *testing.T) {
+		multiline := &investigations.EvidenceResponse{
+			Evidence: []investigations.EvidenceItem{
+				{PanelID: "p1", Tool: "prometheus", Query: "sum by (pod) (\n\trate(errors_total[5m])\n)", Epoch: 1, Time: "2026-07-20T10:00:00Z"},
+			},
+		}
+		for _, codec := range []*investigations.EvidenceTableCodec{{}, {Wide: true}} {
+			var buf bytes.Buffer
+			require.NoError(t, codec.Encode(&buf, multiline))
+			out := buf.String()
+			// Header + one row: embedded newlines/tabs must not split the row.
+			assert.Len(t, strings.Split(strings.TrimRight(out, "\n"), "\n"), 2)
+			if codec.Wide {
+				assert.Contains(t, out, "sum by (pod) ( rate(errors_total[5m]) )")
+			}
+		}
 	})
 
 	t.Run("empty", func(t *testing.T) {

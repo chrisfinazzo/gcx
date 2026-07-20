@@ -324,19 +324,26 @@ func (c *EvidenceTableCodec) Encode(w io.Writer, v any) error {
 	}
 
 	for _, e := range resp.Evidence {
+		query := flattenWhitespace(e.Query)
 		if c.Wide {
 			toolUseID := e.ToolUseID
 			if toolUseID == "" {
 				toolUseID = "-"
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n",
-				e.PanelID, e.Tool, e.Query, e.Epoch, e.Time, toolUseID)
+				e.PanelID, e.Tool, query, e.Epoch, e.Time, toolUseID)
 		} else {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n",
-				e.PanelID, e.Tool, truncate(e.Query, 40), e.Epoch, e.Time)
+				e.PanelID, e.Tool, truncate(query, 40), e.Epoch, e.Time)
 		}
 	}
 	return tw.Flush()
+}
+
+// flattenWhitespace collapses whitespace runs (newlines, tabs) to single
+// spaces so multi-line queries don't split tabwriter rows or shift columns.
+func flattenWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func (c *EvidenceTableCodec) Decode(_ io.Reader, _ any) error {
