@@ -70,7 +70,7 @@ gcx metrics                       gcx logs                        gcx profiles  
 +-- query EXPR      (-d)          +-- query EXPR      (-d)        +-- query EXPR      (-d)        +-- query TRACEQL      (-d)
 |                                 +-- metrics EXPR    (-d)        +-- metrics EXPR    (-d)        |   (also: search)
 +-- labels          (-d)          +-- labels          (-d)        +-- labels          (-d)        +-- metrics TRACEQL    (-d)
-+-- metadata        (-d)          +-- series          (-d)        +-- profile-types   (-d)        +-- labels             (-d)
++-- metadata        (-d)          +-- series          (-d)        +-- list-types      (-d)        +-- labels             (-d)
 |                                 |                               |                               |   (also: tags)
 '-- adaptive/                     '-- adaptive/                   '-- adaptive (stub)             +-- get TRACE_ID       (-d)
                                                                                                   '-- adaptive/

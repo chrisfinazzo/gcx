@@ -79,13 +79,13 @@ func (p *Provider) descriptor() signals.Descriptor {
 			{
 				Build:     dspyroscope.ProfileTypesCmd,
 				TokenCost: "small",
-				LLMHint:   "gcx profiles profile-types -d abc123 -o json",
+				LLMHint:   "gcx profiles list-types -d abc123 -o json",
 				Example: `
   # List profile types (use datasource UID, not name)
-  gcx profiles profile-types -d UID
+  gcx profiles list-types -d UID
 
   # Output as JSON
-  gcx profiles profile-types -d UID -o json`,
+  gcx profiles list-types -d UID -o json`,
 			},
 			{
 				Build:     dspyroscope.MetricsCmd,
