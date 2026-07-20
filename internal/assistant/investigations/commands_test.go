@@ -84,6 +84,66 @@ func TestListTableCodec_TitleTruncation(t *testing.T) {
 	assert.Contains(t, buf.String(), "...")
 }
 
+func TestProfilesTableCodec_Encode(t *testing.T) {
+	profiles := &investigations.LodestoneProfiles{
+		Profiles: []investigations.LodestoneProfile{
+			{
+				ID:          "default",
+				DisplayName: "Default",
+				Description: "Standard investigation profile",
+				Default:     true,
+				MaxSteps:    30,
+				ToolNames:   []string{"prometheus_query_handler", "search_skills"},
+				Hash:        "abc123",
+			},
+			{ID: "deep-dive", DisplayName: "Deep dive", MaxSteps: 80},
+		},
+	}
+
+	t.Run("table", func(t *testing.T) {
+		codec := &investigations.ProfilesTableCodec{}
+		assert.Equal(t, "table", string(codec.Format()))
+
+		var buf bytes.Buffer
+		require.NoError(t, codec.Encode(&buf, profiles))
+		out := buf.String()
+		assert.Contains(t, out, "ID")
+		assert.Contains(t, out, "NAME")
+		assert.Contains(t, out, "DEFAULT")
+		assert.Contains(t, out, "MAX STEPS")
+		assert.Contains(t, out, "TOOLS")
+		assert.NotContains(t, out, "DESCRIPTION")
+		assert.Contains(t, out, "default")
+		assert.Contains(t, out, "true")
+		assert.Contains(t, out, "30")
+		assert.Contains(t, out, "2") // tool count
+	})
+
+	t.Run("wide", func(t *testing.T) {
+		codec := &investigations.ProfilesTableCodec{Wide: true}
+		assert.Equal(t, "wide", string(codec.Format()))
+
+		var buf bytes.Buffer
+		require.NoError(t, codec.Encode(&buf, profiles))
+		out := buf.String()
+		assert.Contains(t, out, "DESCRIPTION")
+		assert.Contains(t, out, "Standard investigation profile")
+		assert.Contains(t, out, "-") // empty description
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		codec := &investigations.ProfilesTableCodec{}
+		err := codec.Encode(&bytes.Buffer{}, "wrong")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "expected *LodestoneProfiles")
+	})
+
+	t.Run("decode unsupported", func(t *testing.T) {
+		codec := &investigations.ProfilesTableCodec{}
+		require.Error(t, codec.Decode(nil, nil))
+	})
+}
+
 func TestTodosTableCodec_Encode(t *testing.T) {
 	todos := []investigations.Todo{
 		{ID: "t-1", Title: "Check alerts", Status: "completed", Assignee: "agent"},

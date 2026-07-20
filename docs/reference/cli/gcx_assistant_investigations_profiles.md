@@ -1,0 +1,37 @@
+## gcx assistant investigations profiles
+
+List available agent profiles for v2 investigations.
+
+### Synopsis
+
+List the prompt/tool profiles available for v2 investigations. Profile IDs are the valid values for `create --profile-id`. Most tenants see only the default profile: the full list requires the tenant feature flag assistant.lodestone-allow-profile-selection, and without it create rejects non-default profile IDs.
+
+```
+gcx assistant investigations profiles [flags]
+```
+
+### Options
+
+```
+  -h, --help            help for profiles
+      --jq string       jq expression to apply to JSON output. Mutually exclusive with --json.
+      --json string     Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
+  -o, --output string   Output format. One of: agents, json, table, wide, yaml (default "table")
+```
+
+### Options inherited from parent commands
+
+```
+      --agent                       Enable agent mode (JSON output, no color). Auto-detected from CLAUDECODE, CLAUDE_CODE, CURSOR_AGENT, GITHUB_COPILOT, AMAZON_Q, or GCX_AGENT_MODE env vars.
+      --config string               Path to the configuration file to use
+      --context string              Name of the context to use (overrides current-context in config)
+      --insecure-log-http-payload   Log full HTTP request/response bodies including raw credentials, authorization tokens, cookies, and OAuth refresh tokens. Do not ship these logs.
+      --no-color                    Disable color output
+      --no-truncate                 Disable table column truncation (auto-enabled when stdout is piped)
+  -v, --verbose count               Verbose mode. Multiple -v options increase the verbosity (maximum: 3).
+```
+
+### SEE ALSO
+
+* [gcx assistant investigations](gcx_assistant_investigations.md)	 - Manage Grafana Assistant investigations.
+

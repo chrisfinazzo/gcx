@@ -16,6 +16,7 @@ import (
 const (
 	v2InvestigationsBase = "/api/v2/investigations"
 	v2ListPath           = v2InvestigationsBase
+	v2ProfilesPath       = v2InvestigationsBase + "/profiles"
 	v2ResolveFmt         = v2InvestigationsBase + "/%s"
 	v2SnapshotFmt        = v2InvestigationsBase + "/%s/snapshot"
 	v2PauseFmt           = v2InvestigationsBase + "/%s/pause"
@@ -100,6 +101,20 @@ func (c *Client) ListLodestone(ctx context.Context, opts ListLodestoneOptions) (
 		return []InvestigationSummary{}, nil
 	}
 	return envelope.Data.Investigations, nil
+}
+
+// ListProfiles returns the configured Lodestone agent profiles. Most tenants
+// see only the default profile; the full list requires the tenant feature
+// flag assistant.lodestone-allow-profile-selection.
+func (c *Client) ListProfiles(ctx context.Context) (*LodestoneProfiles, error) {
+	profiles, err := assistanthttp.DoEnvelopeRequest[LodestoneProfiles](c.base, ctx, http.MethodGet, v2ProfilesPath, nil, "list investigation profiles")
+	if err != nil {
+		return nil, err
+	}
+	if profiles.Profiles == nil {
+		profiles.Profiles = []LodestoneProfile{}
+	}
+	return profiles, nil
 }
 
 // ResolveByID maps a user-supplied investigation identifier to both forms

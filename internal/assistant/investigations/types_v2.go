@@ -66,6 +66,24 @@ type ModeResponse struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
+// LodestoneProfile is a list item from GET /investigations/profiles.
+// The required-vs-omitempty split mirrors the server's response type
+// exactly: description is the only optional field.
+type LodestoneProfile struct {
+	ID          string   `json:"id"`
+	DisplayName string   `json:"displayName"`
+	Description string   `json:"description,omitempty"`
+	Default     bool     `json:"default"`
+	MaxSteps    int      `json:"maxSteps"`
+	ToolNames   []string `json:"toolNames"`
+	Hash        string   `json:"hash"`
+}
+
+// LodestoneProfiles is the envelope from GET /investigations/profiles.
+type LodestoneProfiles struct {
+	Profiles []LodestoneProfile `json:"profiles"`
+}
+
 // ScopeRequest is the body for POST /investigations/lodestone/{investigationId}/scope.
 type ScopeRequest struct {
 	TeamNames []string `json:"teamNames"`

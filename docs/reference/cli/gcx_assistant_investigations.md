@@ -33,6 +33,7 @@ Manage Grafana Assistant investigations.
 * [gcx assistant investigations mode](gcx_assistant_investigations_mode.md)	 - Change autonomy mode of a v2 investigation.
 * [gcx assistant investigations narrative](gcx_assistant_investigations_narrative.md)	 - Show the assistant-authored prose for a v2 investigation.
 * [gcx assistant investigations pause](gcx_assistant_investigations_pause.md)	 - Pause a running v2 investigation.
+* [gcx assistant investigations profiles](gcx_assistant_investigations_profiles.md)	 - List available agent profiles for v2 investigations.
 * [gcx assistant investigations regenerate-report](gcx_assistant_investigations_regenerate-report.md)	 - Queue regeneration of a v2 investigation report.
 * [gcx assistant investigations report](gcx_assistant_investigations_report.md)	 - Show condensed report summary for an investigation.
 * [gcx assistant investigations resume](gcx_assistant_investigations_resume.md)	 - Resume a paused v2 investigation.

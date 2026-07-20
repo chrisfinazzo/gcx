@@ -100,6 +100,79 @@ func TestListLodestone(t *testing.T) {
 	}
 }
 
+func TestListProfiles(t *testing.T) {
+	// Pins the full response schema: every field the server sends must
+	// round-trip losslessly through LodestoneProfile.
+	full := []investigations.LodestoneProfile{
+		{
+			ID:          "default",
+			DisplayName: "Default",
+			Description: "Standard investigation profile",
+			Default:     true,
+			MaxSteps:    30,
+			ToolNames:   []string{"prometheus_query_handler", "search_skills"},
+			Hash:        "abc123",
+		},
+		{
+			ID:          "deep-dive",
+			DisplayName: "Deep dive",
+			Default:     false,
+			MaxSteps:    80,
+			ToolNames:   []string{},
+			Hash:        "def456",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		profiles any
+		want     []investigations.LodestoneProfile
+	}{
+		{name: "full schema", profiles: full, want: full},
+		{name: "null profiles yields empty slice", profiles: nil, want: []investigations.LodestoneProfile{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, v2InvestigationsPath+"/profiles", r.URL.Path)
+				assert.Empty(t, r.URL.RawQuery)
+				writeJSON(w, map[string]any{
+					"data": map[string]any{"profiles": tt.profiles},
+				})
+			}))
+			out, err := client.ListProfiles(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.Profiles)
+		})
+	}
+
+	t.Run("server error", func(t *testing.T) {
+		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("boom"))
+		}))
+		_, err := client.ListProfiles(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+	})
+}
+
+// TestLodestoneProfile_RequiredFieldsSerialized pins the required-vs-omitempty
+// split against the server's response type: description is the only optional
+// field, everything else must serialize even when zero.
+func TestLodestoneProfile_RequiredFieldsSerialized(t *testing.T) {
+	raw, err := json.Marshal(investigations.LodestoneProfile{})
+	require.NoError(t, err)
+	var keys map[string]any
+	require.NoError(t, json.Unmarshal(raw, &keys))
+	for _, key := range []string{"id", "displayName", "default", "maxSteps", "toolNames", "hash"} {
+		assert.Contains(t, keys, key)
+	}
+	assert.NotContains(t, keys, "description")
+}
+
 func TestResolveByID(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

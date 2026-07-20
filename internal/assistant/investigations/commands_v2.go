@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/grafana/gcx/internal/assistant/assistanthttp"
+	"github.com/grafana/gcx/internal/format"
 	cmdio "github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers"
 	"github.com/spf13/cobra"
@@ -253,6 +256,84 @@ func newShareCommand(loader *providers.ConfigLoader) *cobra.Command {
 	}
 	opts.setup(cmd.Flags())
 	return cmd
+}
+
+// --- profiles ---
+
+type profilesOpts struct{ IO cmdio.Options }
+
+func (o *profilesOpts) setup(flags *pflag.FlagSet) {
+	o.IO.RegisterCustomCodec("table", &ProfilesTableCodec{})
+	o.IO.RegisterCustomCodec("wide", &ProfilesTableCodec{Wide: true})
+	o.IO.DefaultFormat("table")
+	o.IO.BindFlags(flags)
+}
+
+func newProfilesCommand(loader *providers.ConfigLoader) *cobra.Command {
+	opts := &profilesOpts{}
+	cmd := &cobra.Command{
+		Use:   "profiles",
+		Short: "List available agent profiles for v2 investigations.",
+		Long: "List the prompt/tool profiles available for v2 investigations. Profile IDs are " +
+			"the valid values for `create --profile-id`. Most tenants see only the default " +
+			"profile: the full list requires the tenant feature flag " +
+			"assistant.lodestone-allow-profile-selection, and without it create rejects " +
+			"non-default profile IDs.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := opts.IO.Validate(); err != nil {
+				return err
+			}
+			client, err := requireV2(cmd, loader)
+			if err != nil {
+				return err
+			}
+			profiles, err := client.ListProfiles(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return opts.IO.Encode(cmd.OutOrStdout(), profiles)
+		},
+	}
+	opts.setup(cmd.Flags())
+	return cmd
+}
+
+// ProfilesTableCodec renders *LodestoneProfiles as a table.
+type ProfilesTableCodec struct{ Wide bool }
+
+func (c *ProfilesTableCodec) Format() format.Format {
+	if c.Wide {
+		return "wide"
+	}
+	return "table"
+}
+
+func (c *ProfilesTableCodec) Encode(w io.Writer, v any) error {
+	profiles, ok := v.(*LodestoneProfiles)
+	if !ok {
+		return errors.New("invalid data type for table codec: expected *LodestoneProfiles")
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	if c.Wide {
+		fmt.Fprintln(tw, "ID\tNAME\tDEFAULT\tMAX STEPS\tTOOLS\tDESCRIPTION")
+	} else {
+		fmt.Fprintln(tw, "ID\tNAME\tDEFAULT\tMAX STEPS\tTOOLS")
+	}
+	for _, p := range profiles.Profiles {
+		name := truncate(p.DisplayName, 40)
+		if c.Wide {
+			fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%d\t%s\n",
+				p.ID, name, p.Default, p.MaxSteps, len(p.ToolNames), truncate(p.Description, 60))
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%d\n", p.ID, name, p.Default, p.MaxSteps, len(p.ToolNames))
+		}
+	}
+	return tw.Flush()
+}
+
+func (c *ProfilesTableCodec) Decode(_ io.Reader, _ any) error {
+	return errors.New("table format does not support decoding")
 }
 
 // --- regenerate-report ---
