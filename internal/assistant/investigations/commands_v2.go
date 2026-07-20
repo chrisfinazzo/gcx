@@ -274,11 +274,10 @@ func newProfilesCommand(loader *providers.ConfigLoader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profiles",
 		Short: "List available agent profiles for v2 investigations.",
-		Long: "List the prompt/tool profiles available for v2 investigations. Profile IDs are " +
-			"the valid values for `create --profile-id`. Most tenants see only the default " +
-			"profile: the full list requires the tenant feature flag " +
-			"assistant.lodestone-allow-profile-selection, and without it create rejects " +
-			"non-default profile IDs.",
+		Long: "List agent profiles for v2 investigations. Profile IDs are the values for " +
+			"`create --profile-id`. Without the tenant feature flag " +
+			"assistant.lodestone-allow-profile-selection, only the default profile is " +
+			"listed and create rejects non-default IDs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := opts.IO.Validate(); err != nil {

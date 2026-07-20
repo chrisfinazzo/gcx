@@ -319,7 +319,7 @@ func (o *createOpts) setup(flags *pflag.FlagSet) {
 	flags.StringVar(&o.Instruction, "instruction", "", "Investigation instruction (required on v2-enabled stacks)")
 	flags.StringVar(&o.Description, "description", "", "Investigation description (legacy alias of --instruction)")
 	flags.StringSliceVar(&o.Teams, "team", nil, "Team name to scope the investigation to (repeatable, v2 only)")
-	flags.StringVar(&o.ProfileID, "profile-id", "", "Runner profile ID (v2 only; list with 'gcx assistant investigations profiles'; non-default IDs require the tenant feature flag assistant.lodestone-allow-profile-selection)")
+	flags.StringVar(&o.ProfileID, "profile-id", "", "Runner profile ID (v2 only; list with 'gcx assistant investigations profiles')")
 }
 
 func (o *createOpts) captureSetFlags(flags *pflag.FlagSet) {
