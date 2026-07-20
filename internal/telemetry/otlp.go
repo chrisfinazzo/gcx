@@ -113,9 +113,8 @@ func spanAttributes(event Event) []*commonpb.KeyValue {
 		{"parse_error_flags", event.ParseErrorFlags},
 		{"parse_error_nearest", event.ParseErrorNearest},
 	} {
-		key, value := kv.key, kv.value
-		if value != "" {
-			attrs = append(attrs, stringAttr(key, value))
+		if kv.value != "" {
+			attrs = append(attrs, stringAttr(kv.key, kv.value))
 		}
 	}
 	if event.ParseErrorDistance != 0 {
