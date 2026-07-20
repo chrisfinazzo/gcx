@@ -176,6 +176,8 @@ func TestListLodestone_LosslessSummary(t *testing.T) {
 	assert.Equal(t, "done", *a.FinalMessage)
 	assert.Equal(t, "completed", a.Status)
 	assert.Equal(t, "user", a.Audience)
+	assert.Equal(t, "2026-07-01T10:00:00Z", a.CreatedAt.Format(time.RFC3339))
+	assert.Equal(t, "2026-07-01T11:00:00Z", a.UpdatedAt.Format(time.RFC3339))
 	assert.Equal(t, []float64{10.5, 12.0}, a.TokensPerSecondHistory)
 	require.NotNil(t, a.TokenCounter)
 	assert.Equal(t, int64(999), *a.TokenCounter)

@@ -49,6 +49,11 @@ type LodestoneList struct {
 	Total          int64                           `json:"total"`
 }
 
+// ListItemsKey satisfies internal/output's ListEnvelope so that --json field
+// selection and discovery descend into the investigations rather than
+// operating on the envelope keys.
+func (LodestoneList) ListItemsKey() string { return "investigations" }
+
 // LodestoneInvestigationSummary is a v2 list item. It mirrors the server's
 // summary shape field-for-field so no data is dropped from json/yaml output.
 // The deprecated `confidence` field (always null server-side) is omitted.
@@ -93,8 +98,8 @@ type LodestoneAgent struct {
 	FinalMessage           *string   `json:"finalMessage,omitempty"`
 	Status                 string    `json:"status,omitempty"`
 	Audience               string    `json:"audience,omitempty"`
-	CreatedAt              string    `json:"createdAt,omitempty"`
-	UpdatedAt              string    `json:"updatedAt,omitempty"`
+	CreatedAt              time.Time `json:"createdAt,omitzero"`
+	UpdatedAt              time.Time `json:"updatedAt,omitzero"`
 	TokensPerSecondHistory []float64 `json:"tokensPerSecondHistory,omitempty"`
 	TokenCounter           *int64    `json:"tokenCounter,omitempty"`
 	OutputPreview          *string   `json:"outputPreview,omitempty"`
