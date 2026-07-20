@@ -69,21 +69,18 @@ contexts:
         cert-data:
           - int
           - ...
-
         # KeyData holds PEM-encoded bytes (typically read from a client certificate key file).
         # Note: this value is base64-encoded in the config file and will be
         # automatically decoded.
         key-data:
           - int
           - ...
-
         # CAData holds PEM-encoded bytes (typically read from a root certificates bundle).
         # Note: this value is base64-encoded in the config file and will be
         # automatically decoded.
         ca-data:
           - int
           - ...
-
         # NextProtos is a list of supported application level protocols, in order of preference.
         # Used to populate tls.Config.NextProtos.
         # To indicate to the server http/1.1 is preferred over http/2, set to ["http/1.1", "h2"] (though the server is free to ignore that preference).
@@ -91,7 +88,6 @@ contexts:
         next-protos:
           - string
           - ...
-
     cloud:
       # CloudConfig holds Grafana Cloud platform credentials and configuration.
       # Token is a Grafana Cloud API token used to authenticate against GCOM.
@@ -137,7 +133,6 @@ contexts:
       assume-server-dry-run:
         - string
         - ...
-
 # CurrentContext is the name of the context currently in use.
 current-context: string
 # Diagnostics holds optional local diagnostic settings. All features are off by default.

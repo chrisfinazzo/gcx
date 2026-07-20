@@ -36,3 +36,4 @@ gcx kg prom-rules schema [flags]
 ### SEE ALSO
 
 * [gcx kg prom-rules](gcx_kg_prom-rules.md)	 - Manage Knowledge Graph Custom Prometheus rules.
+
