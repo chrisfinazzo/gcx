@@ -1,38 +1,38 @@
-## gcx datasources influxdb field-keys
+## gcx datasources influxdb list-measurements
 
-List field keys
+List measurements
 
 ### Synopsis
 
-List field keys from an InfluxDB datasource. Only supported in InfluxQL mode.
+List measurement names from an InfluxDB datasource.
 
 ```
-gcx datasources influxdb field-keys [flags]
+gcx datasources influxdb list-measurements [flags]
 ```
 
 ### Examples
 
 ```
 
-  # List all field keys (use datasource UID, not name)
-  gcx datasources influxdb field-keys -d UID
+  # List all measurements (use datasource UID, not name)
+  gcx datasources influxdb list-measurements -d UID
 
-  # Filter by measurement
-  gcx datasources influxdb field-keys -d UID --measurement cpu
+  # List measurements with Flux mode (requires --bucket)
+  gcx datasources influxdb list-measurements -d UID --bucket my-bucket
 
   # Output as JSON
-  gcx datasources influxdb field-keys -d UID -o json
+  gcx datasources influxdb list-measurements -d UID -o json
 ```
 
 ### Options
 
 ```
-  -d, --datasource string    Datasource UID (required unless datasources.influxdb is configured)
-  -h, --help                 help for field-keys
-      --jq string            jq expression to apply to JSON output. Mutually exclusive with --json.
-      --json string          Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
-  -m, --measurement string   Filter by measurement name
-  -o, --output string        Output format. One of: agents, json, table, yaml (default "table")
+      --bucket string       Bucket name for Flux mode (defaults to datasource defaultBucket)
+  -d, --datasource string   Datasource UID (required unless datasources.influxdb is configured)
+  -h, --help                help for list-measurements
+      --jq string           jq expression to apply to JSON output. Mutually exclusive with --json.
+      --json string         Comma-separated list of fields to include in JSON output, or 'list' (or '?') to discover available fields
+  -o, --output string       Output format. One of: agents, json, table, yaml (default "table")
 ```
 
 ### Options inherited from parent commands
