@@ -314,6 +314,10 @@ gcx traces query '{.cluster="dev-us-central-0"}' --since 1h
 For an empty dashboard or missing application telemetry, follow
 [Diagnose missing telemetry with gcx](docs/guides/diagnose-missing-telemetry.md).
 
+Synthetic Monitoring check manifests support optional `spec.folderUid` for folder
+assignment. See the [check management guide](claude-plugin/skills/synth-manage-checks/SKILL.md#step-3-build-yaml-definition)
+for create/update semantics and cross-stack push guidance.
+
 ## Install Agent Skills
 
 gcx ships a portable Agent Skills bundle for setup, dashboard creation and
