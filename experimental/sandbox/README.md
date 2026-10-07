@@ -45,12 +45,16 @@ unmodified CLI, a fresh instance per command) with in-process isolation:
 
 - **gcx side** (`internal/httputils/wire_wasip1.go`). `httputils.WireTransport` is
   the innermost layer of every gcx HTTP client. In normal builds it does nothing.
-  Under `GOOS=wasip1` it serializes each request as HTTP/1.1 and passes it to the
-  host's `gcx_http` import module:
-  - `start` begins a request and returns an ID
-  - `poll` reports whether it has finished
-  - `take` copies the response into a buffer the guest provides
-  - `cancel` abandons the request
+  Under `GOOS=wasip1` it passes each request to the host's `gcx_http` import
+  module, whose shape follows [wasi:http 0.3](https://github.com/WebAssembly/WASI/tree/main/proposals/http)
+  flattened to core wasm (no component model):
+  - `request_new` describes a request (method, scheme, authority, path, headers,
+    body) and returns an ID; `handle` sends it
+  - `poll` reports whether the response has arrived or the request failed
+  - `get_status_code`, `get_headers` and `body_read` read the response; the
+    body streams in chunks
+  - `error_code` and `error_detail` describe a failure as a wasi:http `error-code`
+  - `drop` abandons the request and frees the ID
 
   Requests from gcx's goroutines run concurrently on the host. Other wasip1-only
   files (`*_wasip1.go`) leave out terminal UIs and commands that only work on a
@@ -144,9 +148,9 @@ Each `Run`:
   request to that host, replacing whatever the guest sent. They never follow a
   redirect to another host.
 - **Memory:** the guest's is capped by `Config.MemoryLimitBytes`. gcx needs
-  about 94 MiB, and `New` rejects anything lower. The host also buffers each
-  response in full, outside that cap; to bound it, wrap `Config.Transport` in a
-  round tripper that limits response size.
+  about 94 MiB, and `New` rejects anything lower. Outside that cap, the host
+  holds at most a couple of 32 KiB chunks of each response body, which it
+  streams to the guest as the guest reads it.
 - **Time:** the guest stops when `ctx` is cancelled or its deadline passes.
   gcx's retry backoff sleeps can't be interrupted, so stopping can lag by up to
   one backoff interval.
@@ -157,8 +161,8 @@ Each `Run`:
   stubbed out.
 - **TLS:** handled by the host, so the guest's TLS settings (custom CA, mTLS)
   are ignored.
-- **Buffering:** responses are buffered in full, so streaming and long-poll
-  commands don't work.
+- **Request bodies:** sent in one piece, not streamed. Responses stream, except
+  under `--insecure-log-http-payload`, which reads each body to its end first.
 - **Stack discovery:** gcx needs `GRAFANA_SERVER/bootdata` to succeed, so the
   stack's host must be in `Egress`.
 - **Maintenance:** the `patches/` stubs need updating when gcx's dependencies
