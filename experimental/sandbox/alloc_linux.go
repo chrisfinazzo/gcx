@@ -25,10 +25,15 @@ import (
 // just after its context is cancelled, which with a mapping would leak it
 // for the life of the process. Freeing twice is harmless.
 func newRunMemory() (experimental.MemoryAllocator, func()) {
+	return newRunMemoryWith(allocateMapped)
+}
+
+// newRunMemoryWith is newRunMemory with allocate in place of allocateMapped.
+func newRunMemoryWith(allocate func(capacity, maxBytes uint64) experimental.LinearMemory) (experimental.MemoryAllocator, func()) {
 	var mu sync.Mutex
 	var mems []experimental.LinearMemory
 	alloc := func(capacity, maxBytes uint64) experimental.LinearMemory {
-		mem := allocateMapped(capacity, maxBytes)
+		mem := allocate(capacity, maxBytes)
 		mu.Lock()
 		mems = append(mems, mem)
 		mu.Unlock()
@@ -47,14 +52,22 @@ func newRunMemory() (experimental.MemoryAllocator, func()) {
 func allocateMapped(capacity, maxBytes uint64) experimental.LinearMemory {
 	// wazero can't handle a nil LinearMemory, so when the reservation is
 	// refused (e.g. by strict overcommit), fall back to the heap.
-	if maxBytes <= math.MaxInt {
-		buf, err := syscall.Mmap(-1, 0, int(maxBytes), syscall.PROT_READ|syscall.PROT_WRITE,
-			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
-		if err == nil {
-			return &mappedMemory{buf: buf}
-		}
+	if buf, ok := reserve(maxBytes); ok {
+		return &mappedMemory{buf: buf}
 	}
 	return &heapMemory{buf: make([]byte, 0, capacity)}
+}
+
+// reserve maps maxBytes of address space for one instance's memory, touched
+// only as the guest grows into it. It reports false if the kernel refuses
+// the mapping or maxBytes doesn't fit in an int.
+func reserve(maxBytes uint64) ([]byte, bool) {
+	if maxBytes > math.MaxInt {
+		return nil, false
+	}
+	buf, err := syscall.Mmap(-1, 0, int(maxBytes), syscall.PROT_READ|syscall.PROT_WRITE,
+		syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
+	return buf, err == nil
 }
 
 type mappedMemory struct{ buf []byte }

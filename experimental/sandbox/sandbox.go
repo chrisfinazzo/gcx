@@ -39,8 +39,10 @@ type Config struct {
 	//
 	// On Linux, guest memory is mapped outside the Go heap (see the README),
 	// so the Go GC and GOMEMLIMIT don't see it: leave room for it below the
-	// container's limit, and watch RSS rather than Go heap metrics. With
-	// vm.overcommit_memory=2, each run commits its full cap while it runs.
+	// container's limit, and watch the container's memory or PSS rather than
+	// Go heap metrics. RSS counts the memory image the runs share once per
+	// run. With vm.overcommit_memory=2, each run commits its full cap while
+	// it runs.
 	MemoryLimitBytes uint64
 	// Transport performs the guest's HTTP requests after the egress policy
 	// has allowed them. Nil means http.DefaultTransport.
@@ -63,6 +65,9 @@ type Runtime struct {
 	// newRunMemory is the allocator for each Run's instance, and how to free
 	// what it allocated (see alloc_linux.go). Tests wrap it.
 	newRunMemory func() (experimental.MemoryAllocator, func())
+	// releaseImage releases the memory image newRunMemory maps into each
+	// instance (see image_linux.go). Close calls it after closing rt.
+	releaseImage func()
 
 	// Close stops the runs in flight and waits for them before closing rt,
 	// because closing rt frees every instance's memory, and a guest still
@@ -71,6 +76,10 @@ type Runtime struct {
 	closed  bool
 	runs    sync.WaitGroup
 	cancels map[*context.CancelCauseFunc]struct{} // of the runs in flight
+
+	// teardown runs release once, however many times Close gets that far.
+	teardown    sync.Once
+	teardownErr error
 }
 
 // New compiles the gcx wasip1 module (see build.sh).
@@ -97,6 +106,7 @@ func New(ctx context.Context, wasm []byte, cfg Config) (*Runtime, error) {
 		transport:    cfg.Transport,
 		cache:        cache,
 		newRunMemory: newRunMemory,
+		releaseImage: func() {},
 		cancels:      map[*context.CancelCauseFunc]struct{}{},
 	}
 	if r.transport == nil {
@@ -122,11 +132,24 @@ func (r *Runtime) init(ctx context.Context, wasm []byte) error {
 	if err := instantiateHTTP(ctx, r.rt); err != nil {
 		return err
 	}
-	compiled, err := r.rt.CompileModule(ctx, wasm)
+	// On Linux, the module's data segments become one memory image that
+	// every instance shares (see image_linux.go).
+	module, runMemory, release := newMemoryImage(wasm)
+	compiled, err := r.rt.CompileModule(ctx, module)
+	if err != nil && release != nil {
+		// The image is best effort: if wazero rejects the module without its
+		// segments, run the original, which copies them into each instance.
+		release()
+		module, runMemory, release = wasm, newRunMemory, nil
+		compiled, err = r.rt.CompileModule(ctx, module)
+	}
 	if err != nil {
 		return err
 	}
-	r.compiled = compiled
+	r.compiled, r.newRunMemory = compiled, runMemory
+	if release != nil {
+		r.releaseImage = release
+	}
 	return nil
 }
 
@@ -167,11 +190,18 @@ func (r *Runtime) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	// Only after the wait, so a Close that gave up can be retried.
+	r.teardown.Do(func() { r.teardownErr = r.release(ctx) })
+	return r.teardownErr
+}
 
+// release frees what New set up, once no run can be using it.
+func (r *Runtime) release(ctx context.Context) error {
 	if r.root != "" {
 		_ = os.RemoveAll(r.root)
 	}
 	err := r.rt.Close(ctx)
+	r.releaseImage()
 	if r.cache != nil {
 		err = errors.Join(err, r.cache.Close(ctx))
 	}
