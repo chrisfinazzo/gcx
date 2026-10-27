@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/grafana/gcx/internal/httputils"
 	"github.com/grafana/gcx/internal/logs"
 	"github.com/grafana/gcx/internal/notifier"
+	"github.com/grafana/gcx/internal/output"
 	"github.com/grafana/gcx/internal/providers"
 	_ "github.com/grafana/gcx/internal/providers/agento11y"       // Provider registrations — blank imports trigger init() self-registration.
 	_ "github.com/grafana/gcx/internal/providers/alert"           // Provider registrations — blank imports trigger init() self-registration.
@@ -72,6 +74,51 @@ var jsonFlagActive atomic.Bool
 // on the command that was actually executed. Safe for concurrent use.
 func IsJSONFlagActive() bool {
 	return jsonFlagActive.Load()
+}
+
+// humanOutputFlagActive is set to true in PersistentPreRun when the user
+// explicitly asked for a human-oriented output format (-o text, wide, yaml, ...)
+// on the resolved command. reportError() in main.go uses it to let the explicit
+// format override agent mode for errors, as it already does for results.
+//
+//nolint:gochecknoglobals
+var humanOutputFlagActive atomic.Bool
+
+// IsHumanOutputFlagActive reports whether the user explicitly selected a
+// non-JSON output format with -o on the command that was actually executed.
+// Always false when --json or --jq is set: those keep JSON error documents.
+// Safe for concurrent use.
+func IsHumanOutputFlagActive() bool {
+	return humanOutputFlagActive.Load()
+}
+
+// explicitHumanOutput reports whether cmd has an explicitly set -o that selects
+// the stdout format and is neither json nor agents, with no --json/--jq field
+// selection or filtering. It is false where -o does not own stdout: a -o that
+// is not an output-format flag (output.FormatFlagAnnotation, e.g. a
+// destination directory), pinned-format commands (resources pull/edit) and
+// artifact formats (-o pprof) keep their JSON receipt on stdout.
+func explicitHumanOutput(cmd *cobra.Command) bool {
+	for _, name := range []string{"json", "jq"} {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
+			return false
+		}
+	}
+	f := cmd.Flags().Lookup("output")
+	if f == nil || !f.Changed {
+		return false
+	}
+	if _, isFormat := f.Annotations[output.FormatFlagAnnotation]; !isFormat {
+		return false
+	}
+	if _, pinned := f.Annotations[output.PinnedFormatAnnotation]; pinned {
+		return false
+	}
+	value := f.Value.String()
+	if slices.Contains(f.Annotations[output.ArtifactFormatsAnnotation], value) {
+		return false
+	}
+	return value != "json" && value != "agents"
 }
 
 func shouldNotifySkills(cmd *cobra.Command) bool {
@@ -152,6 +199,7 @@ func newCommand(version string, pp []providers.Provider) *cobra.Command {
 		Version:       version,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			jsonFlagActive.Store(false)
+			humanOutputFlagActive.Store(explicitHumanOutput(cmd))
 			// Track whether --json was explicitly set on the resolved command.
 			// Only mark active when the command actually declares a --json flag,
 			// preventing false positives for subcommands that don't support it.

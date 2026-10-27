@@ -149,6 +149,17 @@ stream. The stderr fallback appears only if the stdout write itself fails.
 the stderr output; the implementation intentionally converged on
 either/or in `reportError`, `cmd/gcx/main.go`.)
 
+An explicit human-format `-o` (`text`, `wide`, `yaml`, …) overrides agent mode
+for errors as it does for results: the failure is rendered on **stderr** as it
+is with `--agent=false`, and stdout carries no error document. Agent mode
+without `-o`, `-o json`, `-o agents`, `--json` and `--jq` keep the in-band
+document. So do artifact commands where `-o` does not select the stdout
+format: it selects the file format (`resources pull`, `resources edit`,
+`-o pprof`) or is not a format at all (`dev lint new -o <dir>`), and stdout
+stays JSON there. Failures before the command runs (an unknown flag, invalid
+arguments) keep the in-band document too, because the explicit format is
+recorded only once flag parsing has succeeded.
+
 The envelope carries collision-resistant discriminators:
 `{"type": "gcx.error", "schema_version": "1", "error": {...}}`. The fused
 partial-failure envelope uses `"type": "gcx.partial_result"` with `items`
