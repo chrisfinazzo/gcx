@@ -126,6 +126,22 @@ curl -fsSL https://raw.githubusercontent.com/grafana/gcx/main/scripts/install.sh
 
 To upgrade, run the same command again, then check `gcx --version`. 
 
+#### Windows
+
+Run this command in PowerShell 7 or Windows PowerShell 5.1:
+
+```powershell
+irm https://raw.githubusercontent.com/grafana/gcx/main/scripts/install.ps1 | iex
+gcx --version
+```
+
+The installer checks the SHA-256 checksum. It installs `gcx.exe` in
+`$env:LOCALAPPDATA\gcx\bin` and adds that directory to your user `PATH`.
+Run the command again to upgrade. Use `GCX_VERSION` or `GCX_INSTALL_DIR` to
+select a version or directory. See the [Windows install guide](docs/sources/installation.md#install-on-windows)
+for manual ZIP installation and uninstall steps. For WSL, use the Linux
+installer inside WSL.
+
 #### Homebrew
 
 To install `gcx` using Homebrew in Linux or macOS run: 
