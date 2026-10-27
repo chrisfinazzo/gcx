@@ -589,6 +589,7 @@
  "gcx resources list-types": "finite",
  "gcx resources pull": "artifact",
  "gcx resources push": "finite",
+ "gcx resources search": "finite",
  "gcx resources validate": "finite",
  "gcx setup status": "finite",
  "gcx signup": "interactive",
