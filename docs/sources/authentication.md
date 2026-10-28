@@ -67,6 +67,31 @@ The `grafana-assistant-app.tokens.gcx:access` permission only lets you create `g
 
 If `gcx login` fails with a `Permission Required` error naming the **gcx User** role, ask your Grafana administrator to assign you the **gcx User** role, or a custom role that includes the `grafana-assistant-app.tokens.gcx:access` permission. If the role doesn't exist on your instance, update the Grafana Assistant application to a version that includes it.
 
+### Permissions to use Assistant investigations
+
+Access to the Assistant app requires `plugins.app:access` scoped to `plugins:id:grafana-assistant-app`. A backend 403 such as `insufficient permissions` doesn't mean that app access is missing.
+
+If `gcx assistant investigations list` returns a backend HTTP 403, `gcx` reports `Authorization failed` with exit code 3 and names `grafana-assistant-app.investigations:read` as the required action by default.
+
+The `grafana-assistant-app.investigations:read` action comes with the Assistant Investigation User role. Editor and Admin have this role by default. Viewer doesn't.
+
+Viewing system-created investigations, for example from alerts or webhooks, requires `grafana-assistant-app.investigations.system:read`. When the HTTP 403 response names a required action, `gcx` reports that action.
+
+For other Assistant operations, including investigation mutations and MCP server calls, `gcx` gives general permission guidance unless the response names a required action.
+
+A `plugin proxy route access denied` response takes precedence over the investigation read action and gives route permission guidance; a backend denial identifies an operation permission failure.
+
+Inspect your allowed actions with:
+
+```bash
+gcx api /api/access-control/user/actions
+```
+
+Ask your Grafana administrator to check your roles for the required action. Refer to [roles and permissions](https://grafana.com/docs/grafana/latest/administration/roles-and-permissions/)
+for role assignment guidance.
+
+`gcx setup status` doesn't check Assistant access.
+
 ### Grafana Cloud product API 
 
 Grafana Cloud platform APIs use a separate credential stored in a named Cloud entry in addition to the Grafana instance auth. 

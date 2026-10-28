@@ -99,6 +99,19 @@ mean `API error` (exit 1). Parsed server messages and trace IDs appear once in
 details, with caller context. Transport `Message` text and the method set stay
 unchanged. `gcx api` retains its complete raw body.
 
+Assistant plugin HTTP 403 errors use Assistant-specific permission suggestions
+and the roles-and-permissions documentation (exit 3). Calling clients supply a
+known required action: investigation read operations name
+`grafana-assistant-app.investigations:read`. A valid `details.requiredPermission`
+or top-level `requiredPermission` in the response body takes precedence over the
+caller-supplied action. Operations without a known action get general
+permission guidance. Route refusals use the Assistant converter's
+plugin-route-denied branch before operation-specific guidance. The shared
+`PluginRouteDeniedError` conversion requires a known action and role, which the
+Assistant client does not have for refused routes. A 403 alone does not identify
+`plugins.app:access` as missing. The runnable diagnostic is `gcx api /api/access-control/user/actions`; suggestions do not
+direct users to `gcx setup status`, which does not check Assistant access.
+
 Synthetic Monitoring token discovery is classified by cause: missing Cloud
 credentials or stack configuration is authentication failure, register/install
 permission denial is authorization failure, and service/network outages remain
